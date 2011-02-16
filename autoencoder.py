@@ -80,6 +80,7 @@ class DenoisingAutoencoder(Block):
         ]
         if not conf['tied_weights']:
             self._params.append(self.w_prime)
+        return self
 
     def _hidden_activation(self, x):
         """Single input pattern/minibatch activation function."""
@@ -125,9 +126,9 @@ class StackedDA(Block):
     A class representing a stacked model. Forward propagation passes
     (symbolic) input through each layer sequentially.
     """
-    def __init__(self, **kwargs):
+    def __init__(self, inputs, **kwargs):
         # TODO: Do we need anything else here?
-        super(StackedDA, self).__init__(**kwargs)
+        super(StackedDA, self).__init__(inputs, **kwargs)
 
     def alloc(cls, corruptors, conf, rng=None):
         """Allocate a stacked denoising autoencoder object."""
@@ -171,6 +172,7 @@ class StackedDA(Block):
             }
             da = DenoisingAutoencoder.alloc(corr, lconf, rng)
             self._layers.append(da)
+        return self
 
     def layers(self):
         """
