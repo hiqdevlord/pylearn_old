@@ -19,9 +19,7 @@ class Block(object):
     """
     Basic building block for deep architectures.
     """
-    def __init__(self, inputs, **kwargs):
-        # Symbolic inputs
-        self.inputs = inputs
+    def __init__(self, **kwargs):
         self._params = []
         self.__dict__.update(kwargs)
 
@@ -42,6 +40,9 @@ class Block(object):
     def outputs(self):
         """Output to pass on to layers above."""
         raise NotImplementedError('outputs')
+
+    def __call__(self, inputs):
+        raise NotImplementedError('__call__')
 
 class Trainer(object):
     """
