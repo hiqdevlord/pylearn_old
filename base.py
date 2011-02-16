@@ -19,12 +19,17 @@ class Block(object):
     """
     Basic building block for deep architectures.
     """
-    def __init__(self, **kwargs):
+    def __init__(self, inputs, **kwargs):
+        # Symbolic inputs
+        self.inputs = inputs
         self._params = []
         self.__dict__.update(kwargs)
 
     def alloc(cls, conf, rng=None):
         raise NotImplementedError('alloc')
+
+    def load(self, load_dir, load_filename):
+        raise NotImplementedError('load')
 
     def params(self):
         """
@@ -32,18 +37,23 @@ class Block(object):
         are, in your judgment, typically learned in this
         model.
         """
-        return list(self._params)
+        return self._params
 
-    def __call__(self, inputs):
-        raise NotImplementedError('__call__')
+    def outputs(self):
+        """Output to pass on to layers above."""
+        raise NotImplementedError('outputs')
 
 class Trainer(object):
     """
     Basic abstract class for training
     """
     def __init__(self, inputs, **kwargs):
+        self.inputs = inputs
         self.__dict__.update(kwargs)
 
     def updates(self):
         """Do one step of training."""
         raise NotImplementedError()
+
+    def save(self, save_dir, save_filename):
+        raise NotImplementedError('save')
