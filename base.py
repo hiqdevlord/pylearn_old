@@ -19,23 +19,6 @@ class Block(object):
     """
     Basic building block for deep architectures.
     """
-    def __init__(self, **kwargs):
-        self._params = []
-        self.__dict__.update(kwargs)
-
-    @classmethod
-    def alloc(cls, conf, rng=None):
-        raise NotImplementedError('alloc')
-
-    @classmethod
-    def load(cls, filename, conf):
-        """Create a new object from saved parameters.
-
-        The parameters will be loaded from filename, and the options
-        (or hyper-parameters) are specified in conf.
-        """
-        raise NotImplementedError('load')
-
     def params(self):
         """
         Returns a list of *shared* learnable parameters that
@@ -51,18 +34,14 @@ class Block(object):
     def __call__(self, inputs):
         raise NotImplementedError('__call__')
 
-
-class Optimizer(object):
+class Trainer(object):
     """
-    Basic abstract class for computing parameter updates of a model.
+    Basic abstract class for training
     """
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-
     def updates(self):
-        """Return symbolic updates to apply"""
+        """Do one step of training."""
         raise NotImplementedError()
-
+    
     def function(self, input):
         """Return a compiled Theano function for training"""
         raise NotImplementedError()

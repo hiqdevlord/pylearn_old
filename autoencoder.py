@@ -6,10 +6,21 @@ from itertools import izip
 import numpy
 import theano
 from theano import tensor
+from pylearn.gd.sgd import sgd_updates
 
 # Local imports
-from base import Block
+from base import Block, Trainer
 from utils import sharedX
+
+def safe_update(dict_to, dict_from):
+    """
+    Like dict_to.update(dict_from), except don't overwrite any keys.
+    """
+    for key, val in dict(dict_from).iteritems():
+        if key in dict_to:
+            raise KeyError(key)
+        dict_to[key] = val
+    return dict_to
 
 theano.config.warn.sum_div_dimshuffle_bug = False
 floatX = theano.config.floatX
@@ -26,16 +37,10 @@ class DenoisingAutoencoder(Block):
     A denoising autoencoder learns a representation of the input by
     reconstructing a noisy version of it.
     """
-    def __init__(self, **kwargs):
-        # TODO: Do we need anything else here?
-        super(DenoisingAutoencoder, self).__init__(**kwargs)
-
-    @classmethod
-    def alloc(cls, corruptor, conf, rng=None):
+    def __init__(self, corruptor, conf, rng=None):
         """Allocate a denoising autoencoder object."""
         if not hasattr(rng, 'randn'):
             rng = numpy.random.RandomState(rng)
-        self = cls()
         self.corruptor = corruptor
         self.visbias = sharedX(
             numpy.zeros(conf['n_vis']),
@@ -89,7 +94,6 @@ class DenoisingAutoencoder(Block):
         ]
         if not conf['tied_weights']:
             self._params.append(self.w_prime)
-        return self
 
     def _hidden_activation(self, x):
         """Single input pattern/minibatch activation function."""
@@ -121,16 +125,10 @@ class StackedDA(Block):
     A class representing a stacked model. Forward propagation passes
     (symbolic) input through each layer sequentially.
     """
-    def __init__(self, **kwargs):
-        # TODO: Do we need anything else here?
-        super(StackedDA, self).__init__(**kwargs)
-
-    @classmethod
-    def alloc(cls, corruptors, conf, rng=None):
+    def __init__(self, corruptors, conf, rng=None):
         """Allocate a stacked denoising autoencoder object."""
         if not hasattr(rng, 'randn'):
             rng = numpy.random.RandomState(rng)
-        self = cls()
         self._layers = []
         _local = {}
         # Make sure that if we have a sequence of encoder/decoder activations
@@ -170,7 +168,6 @@ class StackedDA(Block):
             }
             da = DenoisingAutoencoder.alloc(corr, lconf, rng)
             self._layers.append(da)
-        return self
 
     def layers(self):
         """
@@ -197,3 +194,73 @@ class StackedDA(Block):
             transformed = layer(transformed)
         return transformed
 
+class DATrainer(Trainer):
+    def __init__(self, model, cost, minibatch, conf):
+        """
+        Takes a DenoisingAutoencoder object, a (symbolic) cost function
+        which takes the input and turns it into a scalar (somehow),
+        a (symbolic) minibatch, and a configuration dictionary.
+        """
+        # Take care of learning rate scales for individual parameters
+        learning_rates = {}
+        for parameter in model.params():
+            lr_name = '%s_lr' % parameter.name
+            thislr = conf.get(lr_name, 1.)
+            learning_rates[parameter] = sharedX(thislr, lr_name)
+
+        # A shared variable for storing the iteration number.
+        iteration = sharedX(0, 'iter')
+
+        # A shared variable for storing the annealed base learning rate, used
+        # to lower the learning rate gradually after a certain amount of time.
+        annealed = sharedX(conf['base_lr'], 'annealed')
+
+        # Instantiate the class, finally.
+        self.__dict__.update(
+            dict(model=model, cost=cost, conf=conf,
+                 learning_rates=learning_rates, annealed=annealed,
+                 iteration=iteration, minibatch=minibatch)
+        )
+
+    def updates(self):
+        """Compute the updates for each of the parameter variables."""
+        ups = {}
+        # Base learning rate per example.
+        base_lr = theano._asarray(self.conf['base_lr'], dtype=floatX)
+
+        # Annealing coefficient. Here we're using a formula of
+        # base_lr * min(0.0, max(base_lr, lr_anneal_start / (iteration + 1))
+        frac = self.conf['lr_anneal_start'] / (self.iteration + 1.)
+        annealed = tensor.clip(
+            tensor.cast(frac, floatX),
+            0.0,    # minimum learning rate
+            base_lr # maximum learning rate
+        )
+
+        # Update the shared variable for the annealed learning rate.
+        ups[self.annealed] = annealed
+        ups[self.iteration] = self.iteration + 1
+
+        # Calculate the learning rates for each parameter, in the order
+        # they appear in model.params()
+        learn_rates = [annealed * self.learning_rates[p] for p in self.model.params()]
+        # Get the gradient w.r.t. cost of each parameter.
+        grads = [
+            tensor.grad(self.cost([self.minibatch]), p)
+            for p in self.model.params()
+        ]
+        # Get the updates from sgd_updates, a PyLearn library function.
+        p_up = dict(sgd_updates(self.model.params(), grads, learn_rates))
+
+        # Add the things in p_up to ups
+        safe_update(ups, p_up)
+
+        # Return the updates dictionary.
+        return ups
+
+    def function(self, input):
+        """Compile the Theano training function associated with the trainer"""
+        return theano.function([input],                     # The symbolic input you'll pass
+                               self.cost([self.minibatch]), # Whatever quantities you want returned
+                               updates=self.updates()       # How Theano should update shared vars
+                               )
