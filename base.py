@@ -61,15 +61,16 @@ class Block(object):
             raise TypeError('unpickled object was of wrong class: %s' %
                             obj.__class__)
 
-class Trainer(object):
+
+class Optimizer(object):
     """
-    Basic abstract class for training
+    Basic abstract class for computing parameter updates of a model.
     """
     def updates(self):
-        """Do one step of training."""
+        """Return symbolic updates to apply"""
         raise NotImplementedError()
 
-    def function(self):
+    def function(self, inputs):
         """Return a compiled Theano function for training"""
         raise NotImplementedError()
 
