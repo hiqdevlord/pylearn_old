@@ -1,6 +1,7 @@
 """An example of experiment made with the new library."""
 # Standard library imports
 import time
+import os.path
 
 # Third-party imports
 import numpy
