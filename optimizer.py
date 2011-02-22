@@ -97,7 +97,8 @@ class SGDOptimizer(Optimizer):
 
     def function(self, inputs, name=None):
         """Compile the Theano training function associated with the optimizer"""
-        return theano.function(inputs,
-                               self.cost,
-                               updates=self.updates(),
-                               name=name)
+        return theano.function(
+                inputs,
+                self.cost,
+                updates=self.updates(),
+                name=name)
