@@ -3,7 +3,7 @@ Several utilities for experimenting upon utlc datasets
 """
 # Standard library imports
 import os, sys
-from itertools import repeat
+from itertools import izip
 
 # Third-party imports
 import numpy
@@ -50,6 +50,10 @@ def safe_update(dict_to, dict_from):
             raise KeyError(key)
         dict_to[key] = val
     return dict_to
+
+def ceil(x):
+    """ Ceiling function that returns an integer """
+    return int(numpy.ceil(x))
 
 ##################################################
 # Datasets and contest facilities
@@ -163,45 +167,53 @@ class BatchIterator(object):
     of a dataset, with respect to the given proportions in conf
     """
     def __init__(self, conf, dataset):
-        # Record external parameters
-        self.batch_size = conf['batch_size']
-        self.dataset = map(get_value, dataset)
-        
-        # Compute maximum number of samples for one loop
+        # Compute maximum number of examples for training.
         set_proba = [conf['train_prop'], conf['valid_prop'], conf['test_prop']]
         set_sizes = [get_constant(data.shape[0]) for data in dataset]
-        set_batch = [float(self.batch_size) for i in xrange(3)]
-        set_range = numpy.divide(numpy.multiply(set_proba, set_sizes), set_batch)
-        set_range = map(int, numpy.ceil(set_range))
-        
-        self.length = sum(set_range)
+        self.upper_bound = numpy.dot(set_proba, set_sizes)
 
-        # Upper bounds for each minibatch indexes
-        flimit = numpy.ceil(numpy.divide(set_sizes, set_batch))
-        self.limit = map(int, flimit)
+        # Record other parameters.
+        self.batch_size = conf['batch_size']
+        self.dataset = [get_value(data) for data in dataset]
 
-        # Random number generation using a permutation
-        index_tab = []
-        for i in xrange(3):
-            index_tab.extend(repeat(i, set_range[i]))
-        self.permut = numpy.random.permutation(index_tab)
+        # Upper bounds for minibatch indexes
+        self.limit = [ceil(size / float(self.batch_size)) for size in set_sizes]
+        self.counter = [0, 0, 0]
+        self.index = 0
+
+        # Sampled random number generator
+        pairs = izip(set_sizes, set_proba)
+        sampling_proba = [s * p / float(self.upper_bound) for s, p in pairs]
+        cumulative_proba = numpy.cumsum(sampling_proba)
+        def _generator():
+            x = numpy.random.random()
+            return numpy.searchsorted(cumulative_proba, x)
+
+        self.generator = _generator
         # TODO: Record seed parameter for reproductability purposes ?
 
     def __iter__(self):
-        """ Generator function to iterate through all minibatches """
-        counter = [0, 0, 0]
-        for chosen in self.permut:
+        """ Return a fresh self objet to iterate over all minibatches """
+        self.counter = [0, 0, 0]
+        self.index = 0
+        return self
+
+    def next(self):
+        """
+        Return the next minibatch for training according to sampling probabilities
+        """
+        if (self.index >= self.upper_bound):
+            raise StopIteration
+        else:
             # Retrieve minibatch from chosen set
-            index = counter[chosen]
-            minibatch = self.dataset[chosen][index * self.batch_size:(index + 1) * self.batch_size]
+            chosen = self.generator()
+            offset = self.counter[chosen]
+            minibatch = self.dataset[chosen][offset * self.batch_size:(offset + 1) * self.batch_size]
             # Increment counters
-            counter[chosen] = (counter[chosen] + 1) % self.limit[chosen]
+            self.index += minibatch.shape[0]
+            self.counter[chosen] = (self.counter[chosen] + 1) % self.limit[chosen]
             # Return the computed minibatch
-            yield minibatch
-    
-    def __len__(self):
-        """ Return length of the weighted union """
-        return self.length
+            return minibatch
     
 ##################################################
 # Miscellaneous
