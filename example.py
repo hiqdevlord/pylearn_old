@@ -8,10 +8,10 @@ import theano
 from theano import tensor
 
 # Local imports
-from framework.cost import MeanSquaredError
-from framework.corruption import GaussianCorruptor
-from framework.autoencoder import DenoisingAutoencoder, StackedDA
-from framework.optimizer import SGDOptimizer
+from cost import MeanSquaredError
+from corruption import GaussianCorruptor
+from autoencoder import DenoisingAutoencoder, StackedDA
+from optimizer import SGDOptimizer
 
 if __name__ == "__main__":
     # Simulate some fake data.
