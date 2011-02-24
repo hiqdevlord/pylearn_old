@@ -12,7 +12,7 @@ from theano import tensor
 try:
     import framework
 except ImportError:
-    print >>sys.stderr, \
+    print >> sys.stderr, \
             "Framework couldn't be imported. Make sure you have the " \
             "repository root on your PYTHONPATH (or as your current " \
             "working directory)"
@@ -43,7 +43,7 @@ def train_da(conf,data):
 
     # Allocate an optimizer, which tells us how to update our model.
     cost_fn = cost.get(conf['cost_class'])(conf, da)([minibatch])
-    trainer = SGDOptimizer(conf, da, cost_fn)
+    trainer = SGDOptimizer(conf, da.params(), cost_fn)
     train_fn = trainer.function([minibatch], name='train_fn')
 
     # Here's a manual training loop.
@@ -62,7 +62,7 @@ def train_da(conf,data):
         if saving_rate != 0:
             saving_counter += 1
             if saving_counter % saving_rate == 0:
-                da.save(conf['saving_dir'], 'model-da-epoch-%02d.pkl' % epoch)
+                da.save(conf['models_dir'], 'model-da-epoch-%02d.pkl' % epoch)
 
         # Print training time + cost
         train_time = time.clock() - batch_time
@@ -83,22 +83,25 @@ def train_da(conf,data):
     print '... final denoising error with test  is', conf['error_test']
 
     # Save model parameters
-    da.save(conf['saving_dir'], 'model-da-final.pkl')
-    print '... model has been saved into %smodel.pkl' % conf['saving_dir']
+    da.save(conf['models_dir'], 'model-da-final.pkl')
+    print '... model has been saved into %s as model-da-final.pkl' % conf['models_dir']
 
     # Return the learned transformation function
-    return da.function()
+    return da.function('da_transform_fn')
 
 
 def train_pca(conf, dataset):
     """Simple wraper to train a PCA and save its parameters"""
     # Train the model
+    print '... training PCA'
     pca = PCA(conf)
     pca.train(utils.get_value(dataset))
-    pca.save(conf['saving_dir'], 'model-pca.pkl')
+    
+    print '... saving PCA'
+    pca.save(conf['models_dir'], 'model-pca.pkl')
 
     # Return the learned transformation function
-    return pca.function()
+    return pca.function('pca_transform_fn')
 
 
 if __name__ == "__main__":
@@ -119,19 +122,18 @@ if __name__ == "__main__":
             # Experiment specific arguments
             'dataset' : 'avicenna',
             'expname' : 'myfirstexp',
-            'batch_size' : 10,
+            'batch_size' : 20,
             'epochs' : 10,
             'train_prop' : 1,
-            'valid_prop' : 0,
+            'valid_prop' : 2,
             'test_prop' : 0,
             'normalize' : True, # (Default = True)
             'normalize_on_the_fly' : False, # (Default = False)
             'randomize_valid' : True, # (Default = True)
             'randomize_test' : True, # (Default = True)
             'saving_rate': 2, # (Default = 0)
-            'saving_dir' : './outputs/',
+            'models_dir' : './outputs/',
             'submit_dir' : './outputs/',
-            'compute_alc' : False, # (Default = False)
             # Arguments for PCA
             'num_components': 75,
             'min_variance': 0, # (Default = 0)
@@ -139,18 +141,26 @@ if __name__ == "__main__":
             }
 
     data = utils.load_data(conf)
+    
     data_blended = utils.blend(conf, data)
-
     pca_fn = train_pca(conf, data_blended)
+    del data_blended
+    pca = PCA.load(conf['models_dir'], 'model-pca.pkl')
+    #pca_fn = pca.function('pca_transform_fn')
+    
     data_after_pca = [utils.sharedX(pca_fn(utils.get_value(set)))
                       for set in data]
-
+    
     da_fn = train_da(conf, data_after_pca)
-    data_after_da = [utils.sharedX(da_fn(utils.get_value(set)))
-                     for set in data_after_pca]
-
-    # Make submission
-    pca = PCA.load(conf['saving_dir'], 'model-pca.pkl')
-    da = DenoisingAutoencoder.load(conf['saving_dir'], 'model-da-final.pkl')
-    #transform = theano.function([input], da(pca(input)))
+    da = DenoisingAutoencoder.load(conf['models_dir'], 'model-da-final.pkl')
+    #da_fn = da.function('da_transform_fn')
+    
+    input = tensor.matrix()
+    transform = theano.function([input], da(pca(input)))
     #utils.create_submission(conf, transform)
+    
+    valid_repr = transform(utils.get_value(data[1]))
+    test_repr = transform(utils.get_value(data[2]))
+    
+    alc = utils.compute_alc(valid_repr, test_repr)
+    print '... resulting alc is', alc
