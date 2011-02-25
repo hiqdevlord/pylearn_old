@@ -51,7 +51,10 @@ class PersistentCDSampler(Sampler):
         These are update formulas that deal with the Markov chain, not
         model parameters.
         """
-        pcd_steps = self.conf.get('pcd_steps', 1)
+        if 'pcd_steps' in self.conf:
+            pcd_steps = self.conf['pcd_steps']
+        else:
+            pcd_steps = 1
         particles = self.particles
         # TODO: do this with scan?
         for i in xrange(pcd_steps):
