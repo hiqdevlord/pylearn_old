@@ -3,7 +3,7 @@ Cost classes: classes that encapsulate the cost evaluation for the DAE
 training criterion.
 """
 # Standard library imports
-from itertools import imap
+from itertools import izip
 
 # Third-party imports
 from theano import tensor
@@ -34,6 +34,7 @@ class MeanSquaredError(SupervisedCost):
         if isinstance(prediction, tensor.Variable):
             return msq(prediction, target)
         else:
+            pairs = izip(prediction, target)
             # TODO: Think of something more sensible to do than sum(). On one
             # hand, if we're treating everything in parallel it should return
             # a list. On the other, we need a scalar for everything else to
@@ -41,7 +42,7 @@ class MeanSquaredError(SupervisedCost):
 
             # This will likely get refactored out into a "costs" module or
             # something like that.
-            return sum(imap(msq, prediction, target))
+            return sum([msq(p, t) for p, t in pairs])
 
 class CrossEntropy(SupervisedCost):
     """
@@ -53,7 +54,8 @@ class CrossEntropy(SupervisedCost):
         ce = lambda x, z: x * tensor.log(z) + (1 - x) * tensor.log(1 - z)
         if isinstance(prediction, tensor.Variable):
             return ce(prediction, target)
-        return sum(imap(lambda p, t: ce(p, t).sum(axis=1).mean(), prediction, target))
+        pairs = izip(prediction, target)
+        return sum([ce(p, t).sum(axis=1).mean() for p, t in pairs])
 
 ##################################################
 def get(str):
