@@ -24,7 +24,8 @@ from framework.optimizer import SGDOptimizer
 
 if __name__ == "__main__":
     # Simulate some fake data.
-    data = numpy.random.normal(size=(1000, 15))
+    rng = numpy.random.RandomState(seed=42)
+    data = rng.normal(size=(1000, 15))
 
     conf = {
         'corruption_level': 0.1,
@@ -50,11 +51,10 @@ if __name__ == "__main__":
     # Allocate an optimizer, which tells us how to update our model.
     # TODO: build the cost another way
     cost = MeanSquaredError(conf, da)(minibatch, da.reconstruction(minibatch))
-    trainer = SGDOptimizer(conf, da.params())
-    updates = trainer.cost_updates(cost)
+    trainer = SGDOptimizer(conf, da.params(), cost)
 
     # Finally, build a Theano function out of all this.
-    train_fn = theano.function([minibatch], cost, updates=updates)
+    train_fn = trainer.function([minibatch])
 
     # Suppose we want minibatches of size 10
     batchsize = 10
@@ -86,11 +86,10 @@ if __name__ == "__main__":
     for layer in sda.layers():
         cost = MeanSquaredError(sda_conf, layer)(thislayer_input[0],
                                                  layer.reconstruction(thislayer_input[0]))
-        opt = SGDOptimizer(sda_conf, layer.params())
-        optimizers.append((opt, cost))
+        opt = SGDOptimizer(sda_conf, layer.params(), cost)
+        optimizers.append(opt)
         # Retrieve a Theano function for training this layer.
-        updates = opt.cost_updates(cost)
-        thislayer_train_fn = theano.function([minibatch], cost, updates=updates)
+        thislayer_train_fn = opt.function([minibatch])
 
         # Train as before.
         for epoch in xrange(10):
