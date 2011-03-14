@@ -7,9 +7,6 @@ import numpy
 import theano
 from theano import tensor
 
-# Local imports
-from utils import sharedX
-
 # Shortcuts
 theano.config.warn.sum_div_dimshuffle_bug = False
 floatX = theano.config.floatX
@@ -22,17 +19,13 @@ else:
     RandomStreams = theano.sandbox.rng_mrg.MRG_RandomStreams
 
 class Corruptor(object):
-    """
-    A corruptor object is allocated in the same fashion as other
-    objects in this file, with a 'conf' dictionary (or object
-    supporting __getitem__) containing relevant hyperparameters.
-    """
-    def __init__(self, conf, rng=None):
+    def __init__(self, corruption_level, rng=2001):
+        # The default rng should be build in a deterministic way
         if not hasattr(rng, 'randn'):
             rng = numpy.random.RandomState(rng)
         seed = int(rng.randint(2**30))
         self.s_rng = RandomStreams(seed)
-        self.conf = conf
+        self.corruption_level = corruption_level
 
     def __call__(self, inputs):
         """Symbolic expression denoting the corrupted inputs."""
@@ -47,7 +40,7 @@ class BinomialCorruptor(Corruptor):
         return self.s_rng.binomial(
             size=x.shape,
             n=1,
-            p=1 - self.conf['corruption_level'],
+            p=1 - self.corruption_level,
             dtype=floatX
         ) * x
 
@@ -67,7 +60,7 @@ class GaussianCorruptor(Corruptor):
         return self.s_rng.normal(
             size=x.shape,
             avg=0,
-            std=self.conf['corruption_level'],
+            std=self.corruption_level,
             dtype=floatX
         ) + x
 
