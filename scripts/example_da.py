@@ -19,7 +19,7 @@ except ImportError:
 # Local imports
 from framework.cost import MeanSquaredError
 from framework.corruption import GaussianCorruptor
-from framework.autoencoder import DenoisingAutoencoder, build_stacked_DA
+from framework.autoencoder import DenoisingAutoencoder, StackedDA
 from framework.optimizer import SGDOptimizer
 
 if __name__ == "__main__":
@@ -29,9 +29,9 @@ if __name__ == "__main__":
 
     conf = {
         'corruption_level': 0.1,
-        'nhid': 20,
-        'nvis': data.shape[1],
-        'anneal_start': 100,
+        'n_hid': 20,
+        'n_vis': data.shape[1],
+        'lr_anneal_start': 100,
         'base_lr': 0.01,
         'tied_weights': True,
         'act_enc': 'tanh',
@@ -45,18 +45,16 @@ if __name__ == "__main__":
     minibatch = tensor.matrix()
 
     # Allocate a denoising autoencoder with binomial noise corruption.
-    corruptor = GaussianCorruptor(conf['corruption_level'])
-    da = DenoisingAutoencoder(conf['nvis'], conf['nhid'], corruptor,
-                              conf['act_enc'], conf['act_dec'])
+    corruptor = GaussianCorruptor(conf)
+    da = DenoisingAutoencoder(conf, corruptor)
 
     # Allocate an optimizer, which tells us how to update our model.
     # TODO: build the cost another way
-    cost = MeanSquaredError(da)(minibatch, da.reconstruction(minibatch))
-    trainer = SGDOptimizer(da, conf['base_lr'], conf['anneal_start'])
-    updates = trainer.cost_updates(cost)
+    cost = MeanSquaredError(conf, da)(minibatch, da.reconstruction(minibatch))
+    trainer = SGDOptimizer(conf, da.params(), cost)
 
     # Finally, build a Theano function out of all this.
-    train_fn = theano.function([minibatch], cost, updates=updates)
+    train_fn = trainer.function([minibatch])
 
     # Suppose we want minibatches of size 10
     batchsize = 10
@@ -76,26 +74,22 @@ if __name__ == "__main__":
     print numpy.histogram(transform(data))
 
     # We'll now create a stacked denoising autoencoder. First, we change
-    # the number of hidden units to be a list. This tells the build_stacked_DA
-    # method how many layers to make.
+    # the number of hidden units to be a list. This tells the StackedDA
+    # class how many layers to make.
     sda_conf = conf.copy()
-    sda_conf['nhid'] = [20, 20, 10]
-    sda_conf['anneal_start'] = None # Don't anneal these learning rates
-    sda = build_stacked_DA(sda_conf['nvis'], sda_conf['nhid'], corruptor,
-                           sda_conf['act_enc'], sda_conf['act_dec'])
+    sda_conf['n_hid'] = [20, 20, 10]
+    sda = StackedDA(sda_conf, corruptor)
 
     # To pretrain it, we'll use a different SGDOptimizer for each layer.
     optimizers = []
     thislayer_input = [minibatch]
     for layer in sda.layers():
-        cost = MeanSquaredError(layer)(thislayer_input[0],
+        cost = MeanSquaredError(sda_conf, layer)(thislayer_input[0],
                                                  layer.reconstruction(thislayer_input[0]))
-        opt = SGDOptimizer(layer.params(), sda_conf['base_lr'],
-                           sda_conf['anneal_start'])
-        optimizers.append((opt, cost))
+        opt = SGDOptimizer(sda_conf, layer.params(), cost)
+        optimizers.append(opt)
         # Retrieve a Theano function for training this layer.
-        updates = opt.cost_updates(cost)
-        thislayer_train_fn = theano.function([minibatch], cost, updates=updates)
+        thislayer_train_fn = opt.function([minibatch])
 
         # Train as before.
         for epoch in xrange(10):
