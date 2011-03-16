@@ -2,13 +2,16 @@
 Implementations of Restricted Boltzmann Machines and associated sampling
 strategies.
 """
+# Standard library imports
 from itertools import izip
 
+# Third-party imports
 import numpy
 import theano
 from theano import tensor
 from theano.tensor import nnet
 
+# Local imports
 from .base import Block, StackedBlocks
 from .utils import sharedX, safe_update
 
