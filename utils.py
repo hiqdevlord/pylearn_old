@@ -225,11 +225,8 @@ class BatchIterator(object):
         self.limit = map(int, set_limit)
 
         # Number of rows in the resulting union
-        set_tsign = sub(set_limit, flo(div(set_sizes, set_batch)))
-        set_tsize = mul(set_tsign, flo(div(set_range, set_limit)))
-        
         l_trun = mul(flo(div(set_range, set_limit)), mod(set_sizes, set_batch))
-        l_full = mul(sub(set_range, set_tsize), set_batch)
+        l_full = mul(sub(set_range, flo(div(set_range, set_limit))), set_batch)
 
         self.length = sum(l_full) + sum(l_trun)
 
@@ -273,12 +270,14 @@ class BatchIterator(object):
 # Miscellaneous
 ##################################################
 
-def blend(dataset, set_proba, **kwargs):
+def blend(dataset, set_proba, batch_size=20, **kwargs):
     """
     Randomized blending of datasets in data according to parameters in conf
     """
-    iterator = BatchIterator(dataset, set_proba, 1, **kwargs)
+    iterator = BatchIterator(dataset, set_proba, batch_size, **kwargs)
     nrow = len(iterator)
+    #print [get_constant(data.shape[0]) for data in dataset]
+    #print set_proba, nrow
     ncol = dataset[0].get_value().shape[1]
     array = numpy.empty((nrow, ncol), dataset[0].dtype)
     index = 0
