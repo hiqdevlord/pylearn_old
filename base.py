@@ -39,22 +39,28 @@ class Block(object):
     def __call__(self, inputs):
         raise NotImplementedError('__call__')
 
-    def save(self, save_file):
+    def save(self, save_dir, save_file):
         """
         Dumps the entire object to a pickle file.
         Individual classes should override __getstate__ and __setstate__
         to deal with object versioning in the case of API changes.
         """
-        fhandle = open(save_file, 'w')
-        cPickle.dump(self, fhandle, -1)
-        fhandle.close()
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        if not os.path.isdir(save_dir):
+            raise IOError('save_dir %s is not a directory' % save_dir)
+        else:
+            fhandle = open(os.path.join(save_dir, save_file), 'w')
+            cPickle.dump(self, fhandle, -1)
+            fhandle.close()
 
     @classmethod
-    def load(cls, load_file):
+    def load(cls, load_dir, load_file):
         """Load a serialized block."""
-        if not os.path.isfile(load_file):
-            raise IOError('File %s does not exist' % load_file)
-        obj = cPickle.load(open(load_file))
+        filename = os.path.join(load_dir, load_file)
+        if not os.path.isfile(filename):
+            raise IOError('File %s does not exist' % filename)
+        obj = cPickle.load(open(filename))
         if isinstance(obj, cls):
             return obj
         else:
