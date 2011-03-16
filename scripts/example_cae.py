@@ -20,6 +20,7 @@ except ImportError:
 from framework.cost import MeanSquaredError
 from framework.corruption import GaussianCorruptor
 from framework.autoencoder import ContractingAutoencoder, build_stacked_DA
+from framework.autoencoder import build_denoising_stack
 from framework.optimizer import SGDOptimizer
 
 if __name__ == "__main__":
@@ -51,7 +52,7 @@ if __name__ == "__main__":
                                 conf['act_enc'], conf['act_dec'])
 
     # Allocate an optimizer, which tells us how to update our model.
-    cost = MeanSquaredError(cae)(minibatch, cae.reconstruct(minibatch))
+    cost = MeanSquaredError(cae)(minibatch, cae.reconstruction(minibatch))
     cost += cae.contraction_penalty(minibatch)
     trainer = SGDOptimizer(cae, conf['base_lr'], conf['anneal_start'])
     updates = trainer.cost_updates(cost)
@@ -84,7 +85,7 @@ if __name__ == "__main__":
     #choose which layer is a regular da and which one is a cae
     stack_conf['contracting']=[True,False,True]
     stack_conf['anneal_start'] = None # Don't anneal these learning rates
-    scae = build_stacked_DA(   corruptors=corruptor,
+    scae = build_denoising_stack(   corruptors=corruptor,
                                     nvis=stack_conf['nvis'],
                                     nhids=stack_conf['nhids'],
                                     act_enc=stack_conf['act_enc'],
@@ -96,10 +97,10 @@ if __name__ == "__main__":
     thislayer_input = [minibatch]
     for layer in scae.layers():
         cost = MeanSquaredError(layer)( thislayer_input[0],
-                                        layer.reconstruct(thislayer_input[0])
+                                        layer.reconstruction(thislayer_input[0])
                                         )
         if isinstance(layer,ContractingAutoencoder):
-            cost+=layer.contraction_penalty(thislayer_input[0])
+            cost+=layer.contraction_penalty(thislayer_input)
         opt = SGDOptimizer( layer.params(),
                             stack_conf['base_lr'],
                             stack_conf['anneal_start']
