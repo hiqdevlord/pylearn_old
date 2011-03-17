@@ -37,7 +37,7 @@ def sharedX(value, name=None, borrow=False):
     """Transform value into a shared variable of type floatX"""
     return theano.shared(theano._asarray(value, dtype=floatX),
                          name=name,
-                         borrow=borrow)
+                         borrow=False)
 
 def safe_update(dict_to, dict_from):
     """
@@ -60,10 +60,12 @@ def load_data(conf):
     expected = ['normalize',
                 'normalize_on_the_fly',
                 'randomize_valid',
-                'randomize_test',
-                'transfer']
+                'randomize_test']
     print '... loading data'
-    data = load_ndarray_dataset(conf['dataset'], **subdict(conf, expected))
+    train_set, valid_set, test_set = load_ndarray_dataset(
+        conf['dataset'],
+        **subdict(conf, expected)
+    )
 
     # Allocate shared variables
     def shared_dataset(data_x):
@@ -74,9 +76,13 @@ def load_data(conf):
             return theano.shared(theano._asarray(data_x), borrow=True)
 
     if conf.get('normalize_on_the_fly', False):
-        return data
+        return [train_set, valid_set, test_set]
     else:
-        return map(shared_dataset, data)
+        test_set_x = shared_dataset(test_set)
+        valid_set_x = shared_dataset(valid_set)
+        train_set_x = shared_dataset(train_set)
+        return [train_set_x, valid_set_x, test_set_x]
+
 
 def create_submission(conf, get_representation):
     """

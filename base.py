@@ -1,8 +1,5 @@
 """Base class for the components in other modules."""
 # Standard library imports
-import inspect
-
-# Standard library imports
 import cPickle
 import os.path
 
@@ -11,7 +8,7 @@ import theano
 from theano import tensor
 
 # Local imports
-from .utils import sharedX, subdict
+from .utils import sharedX
 
 theano.config.warn.sum_div_dimshuffle_bug = False
 floatX = theano.config.floatX
@@ -51,11 +48,6 @@ class Block(object):
         fhandle = open(save_file, 'w')
         cPickle.dump(self, fhandle, -1)
         fhandle.close()
-
-    @classmethod
-    def fromdict(cls, conf):
-        """ Alternative way to build a block, by using a dictionary """
-        return cls(**subdict(conf, inspect.getargspec(cls.__init__)[0]))
 
     @classmethod
     def load(cls, load_file):
