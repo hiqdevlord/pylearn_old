@@ -6,9 +6,6 @@ from framework.rbm import GaussianBinaryRBM, PersistentCDSampler, \
 from framework.optimizer import SGDOptimizer
 from framework.rbm_tools import compute_log_z, compute_nll
 
-import utils.debug
-
-
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='Run the RBM demo, plotting '
@@ -18,7 +15,7 @@ if __name__ == "__main__":
                         required=False, help='Disable plotting of results.')
     args = parser.parse_args()
     data_rng = numpy.random.RandomState(seed=999)
-    data = data_rng.normal(size=(500, 20)).astype(theano.config.floatX)
+    data = data_rng.normal(size=(500, 20))
 
     conf = {
         'nvis': 20,
@@ -46,8 +43,6 @@ if __name__ == "__main__":
 
     vis = tensor.matrix('vis')
     free_energy_fn = theano.function([vis], rbm.free_energy_given_v(vis))
-
-    utils.debug.setdebug()
 
     recon = []
     nlls = []
