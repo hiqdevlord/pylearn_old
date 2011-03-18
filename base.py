@@ -11,7 +11,7 @@ import theano
 from theano import tensor
 
 # Local imports
-from .utils import subdict
+from .utils import sharedX, subdict
 
 theano.config.warn.sum_div_dimshuffle_bug = False
 floatX = theano.config.floatX
@@ -57,21 +57,9 @@ class Block(object):
         fhandle.close()
 
     @classmethod
-    def fromdict(cls, conf, **kwargs):
+    def fromdict(cls, conf):
         """ Alternative way to build a block, by using a dictionary """
-        arglist = []
-        kwargs.update(conf)
-        # Loop over all superclasses of cls
-        # NB : Supposes that "cls" is the first element returned by "getmro()"
-        for elem in inspect.getmro(cls):
-            # Extend arglist with arguments of elem.__init__
-            argspec = inspect.getargspec(elem.__init__)
-            arglist.extend(argspec[0])
-            # If a keyworkds argument is not expected, then break the loop
-            if argspec[2] is None:
-                break
-        # Build the class with appropriated arguments
-        return cls(**subdict(kwargs, arglist))
+        return cls(**subdict(conf, inspect.getargspec(cls.__init__)[0]))
 
     @classmethod
     def load(cls, load_file):

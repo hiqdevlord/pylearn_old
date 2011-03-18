@@ -625,12 +625,3 @@ def build_stacked_RBM(nvis, nhids, batch_size, vis_type='binary',
     # Create the stack
     return StackedBlocks(layers)
 
-
-##################################################
-def get(str):
-    """ Evaluate str into an rbm object, if it exists """
-    obj = globals()[str]
-    if issubclass(obj, RBM):
-        return obj
-    else:
-        raise NameError(str)
