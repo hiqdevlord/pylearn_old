@@ -75,8 +75,8 @@ class PCA(Block):
         # Filter out unwanted components, permanently.
         self._update_cutoff()
         component_cutoff = self.component_cutoff.get_value()
-        self.v.set_value(v[:component_cutoff])
-        self.W.set_value(W[:, :component_cutoff])
+        self.v.set_value(self.v.get_value()[:component_cutoff])
+        self.W.set_value(self.W.get_value()[:, :component_cutoff])
 
     def __call__(self, inputs):
         """
@@ -170,18 +170,6 @@ class SVDPCA(PCA):
         # that X's singular values are the sqrt of cov(X'X)'s eigenvalues), we
         # simply square it.
         return s ** 2, Vh.T
-
-##################################################
-def get(str):
-    """ Evaluate str into an autoencoder object, if it exists """
-    obj = globals()[str]
-    if issubclass(obj, PCA):
-        return obj
-    else:
-        raise NameError(str)
-
-##################################################
-
 
 if __name__ == "__main__":
     """
