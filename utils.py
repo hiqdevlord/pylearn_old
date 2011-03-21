@@ -91,7 +91,7 @@ def load_data(conf):
     else:
         return map(shared_dataset, data)
 
-def create_submission(conf, transform_valid, transform_test = None):
+def create_submission(conf, get_representation):
     """
     Create submission files given a configuration dictionary and a
     computation function.
@@ -99,17 +99,14 @@ def create_submission(conf, transform_valid, transform_test = None):
     Note that it always reload the datasets to ensure valid & test
     are not permuted.
     """
-    if transform_test is None:
-        transform_test = transform_valid
-    
     # Load the dataset, without permuting valid and test
     kwargs = subdict(conf, ['dataset', 'normalize', 'normalize_on_the_fly'])
     kwargs.update(randomize_valid=False, randomize_test=False)
-    valid_set, test_set = load_data(kwargs)[1:3]
+    train_set, valid_set, test_set = load_data(kwargs)
 
     # Valid and test representations
-    valid_repr = transform_valid(valid_set.get_value())
-    test_repr = transform_test(test_set.get_value())
+    valid_repr = get_representation(get_constant(valid_set))
+    test_repr = get_representation(test_set.get_value())
 
     # If there are too much features, outputs kernel matrices
     if (valid_repr.shape[1] > valid_repr.shape[0]):

@@ -7,12 +7,11 @@ import cPickle
 import os.path
 
 # Third-party imports
-import numpy
 import theano
 from theano import tensor
 
 # Local imports
-from framework.utils import subdict
+from .utils import subdict
 
 theano.config.warn.sum_div_dimshuffle_bug = False
 floatX = theano.config.floatX
@@ -99,12 +98,10 @@ class StackedBlocks(Block):
     def __init__(self, layers):
         """
         Build a stack of layers.
-        
-        Parameters
-        ----------
-        layers: list of Blocks
-            The layers to be stacked, ordered
-            from bottom (input) to top (output)
+
+        :type layers: a list of Blocks
+        :param layers: the layers to be stacked,
+            ordered from bottom (input) to top (output)
         """
         self._layers = layers
         # Do not duplicate the parameters if some are shared between layers
@@ -119,20 +116,11 @@ class StackedBlocks(Block):
     def __call__(self, inputs):
         """
         Return the output representation of all layers, including the inputs.
-        
-        Parameters
-        ----------
-        inputs : tensor_like or list of tensor_likes
-            Theano symbolic (or list thereof) representing the input
-            minibatch(es) to be encoded. Assumed to be 2-tensors, with the
-            first dimension indexing training examples and the second indexing
-            data dimensions.
-        
-        Returns
-        -------
-        reconstructed : tensor_like or list of tensor_like
-            A list of theano symbolic (or list thereof), each containing
-            the representation at one level. The first element is the input.
+
+        :param inputs: inputs of the stack
+
+        :returns: A list of symbolic variables, each containing the
+            representation at one level. The first element is the input.
         """
         # Build the hidden representation at each layer
         repr = [inputs]
@@ -143,44 +131,22 @@ class StackedBlocks(Block):
 
         return repr
 
-    def function(self, name=None, repr_index=-1):
+    def function(self, name=None, repr_indices=-1):
         """
         Compile a function computing representations on given layers.
 
-        Parameters
-        ----------
-        name: string
-            name of the function
-        repr_index: int
-            Index of the hidden representation to return.
+        :type name: string
+        :param name: name of the function
+
+        :type repr_indices: int, or list of ints
+        :param repr_indices: Indices of the hidden representations to return.
             0 means the input, -1 the last output.
         """
 
         inputs = tensor.matrix()
         return theano.function(
                 [inputs],
-                outputs=self(inputs)[repr_index],
-                name=name)
-        
-    def concat(self, name=None, start_index=-1, end_index=None):
-        """
-        Compile a function concatenating representations on given layers.
-        
-        Parameters
-        ----------
-        name: string
-            name of the function
-        start_index: int
-            Index of the hidden representation to start the concatenation.
-            0 means the input, -1 the last output.
-        end_index: int
-            Index of the hidden representation from which to stop
-            the concatenation. We must have start_index < end_index.
-        """
-        inputs = tensor.matrix()
-        return theano.function(
-                [inputs],
-                outputs=tensor.concatenate(self(inputs)[start_index:end_index]),
+                outputs=self(inputs)[repr_indices],
                 name=name)
 
     def append(self, layer):
