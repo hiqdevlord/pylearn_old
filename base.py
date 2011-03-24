@@ -12,7 +12,7 @@ import theano
 from theano import tensor
 
 # Local imports
-from .utils import subdict
+from framework.utils import subdict
 
 theano.config.warn.sum_div_dimshuffle_bug = False
 floatX = theano.config.floatX
