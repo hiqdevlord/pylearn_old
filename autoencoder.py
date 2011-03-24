@@ -11,8 +11,8 @@ from theano import scalar
 from theano.tensor import elemwise
 
 # Local imports
-from framework.base import Block, StackedBlocks
-from framework.utils import sharedX, is_pure_elemwise
+from .base import Block, StackedBlocks
+from .utils import sharedX, is_pure_elemwise
 
 theano.config.warn.sum_div_dimshuffle_bug = False
 floatX = theano.config.floatX
@@ -245,7 +245,8 @@ class DenoisingAutoencoder(Autoencoder):
     A denoising autoencoder learns a representation of the input by
     reconstructing a noisy version of it.
     """
-    def __init__(self, corruptor, *args, **kwargs):
+    def __init__(self, corruptor, nvis, nhid, act_enc, act_dec,
+                 tied_weights=False, irange=1e-3, rng=9001):
         """
         Allocate a denoising autoencoder object.
 
@@ -261,7 +262,15 @@ class DenoisingAutoencoder(Autoencoder):
         for the Autoencoder class; see the `Autoencoder.__init__` docstring
         for details.
         """
-        super(DenoisingAutoencoder, self).__init__(*args, **kwargs)
+        super(DenoisingAutoencoder, self).__init__(
+            nvis,
+            nhid,
+            act_enc,
+            act_dec,
+            tied_weights,
+            irange,
+            rng
+        )
         self.corruptor = corruptor
 
     def reconstruct(self, inputs):
@@ -351,7 +360,7 @@ class ContractingAutoencoder(Autoencoder):
             # following form.
             jacobian = self.weights * act_grad.dimshuffle(0, 'x', 1)
             # Penalize the mean of the L2 norm, basically.
-            L = tensor.sum(tensor.mean(jacobian**2,axis=0))
+            L = tensor.mean(jacobian**2)
             return L
         if isinstance(inputs, tensor.Variable):
             return penalty(inputs)
