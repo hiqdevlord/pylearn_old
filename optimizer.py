@@ -53,7 +53,6 @@ class SGDOptimizer(Optimizer):
         # Base learning rate per example.
         self.base_lr = theano._asarray(base_lr, dtype=floatX)
 
-
         for parameter in self.params:
             lr_name = '%s_lr' % parameter.name
             thislr = kwargs.get(lr_name, 1.)
