@@ -8,6 +8,7 @@ from itertools import repeat
 # Third-party imports
 import numpy
 import theano
+from theano import tensor
 from pylearn.datasets.utlc import load_ndarray_dataset
 
 # Local imports

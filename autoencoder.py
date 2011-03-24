@@ -7,10 +7,11 @@ from itertools import izip
 import numpy
 import theano
 from theano import tensor
+from theano import scalar
+from theano.tensor import elemwise
 
 # Local imports
 from .base import Block, StackedBlocks
-from .scalar import rectifier
 from .utils import sharedX
 from .utils.theano_graph import is_pure_elemwise
 
@@ -24,6 +25,25 @@ else:
     import theano.sandbox.rng_mrg
     RandomStreams = theano.sandbox.rng_mrg.MRG_RandomStreams
 
+##################################################
+# Miscellaneous activation functions
+##################################################
+
+class ScalarRectifier(scalar.UnaryScalarOp):
+    @staticmethod
+    def st_impl(x):
+        return x * (x > 0.0)
+    def impl(self, x):
+        return ScalarRectifier.st_impl(x)
+    def grad(self, (x,), (gz,)):
+        return [x > 0.0]
+
+scalar_rectifier = ScalarRectifier(scalar.upgrade_to_float, name='scalar_rectifier')
+rectifier = elemwise.Elemwise(scalar_rectifier, name='rectifier')
+
+##################################################
+# Main Autoencoder class
+##################################################
 
 class Autoencoder(Block):
     """
@@ -79,9 +99,12 @@ class Autoencoder(Block):
             name='hb',
             borrow=True
         )
+
+        irange = float(irange)
+
         # TODO: use weight scaling factor if provided, Xavier's default else
         self.weights = sharedX(
-            .5 - rng.rand(nvis, nhid) * irange,
+            .5 - rng.uniform(-irange,irange, (nvis, nhid)),
             name='W',
             borrow=True
         )
