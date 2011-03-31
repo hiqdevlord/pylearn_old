@@ -18,13 +18,10 @@ class Avicenna:
             assert False
 
         if standardize:
-            union = N.concatenate([train,valid,test],axis=0)
-            self.X -= union.mean(axis=0)
-            std = union.std(axis=0)
+            self.X -= train.mean(axis=0)
+            std = train.std(axis=0)
             std[std < 1e-3] = 1e-3
             self.X /= std
-
-
 
     def get_design_matrix(self):
         return self.X

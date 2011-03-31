@@ -15,14 +15,11 @@ except ImportError:
 import framework.config.yaml_parse
 
 class Train:
-    def __init__(self, dataset, model, algorithm = None):
+    def __init__(self, dataset, model, algorithm):
         self.dataset, self.model, self.algorithm  = dataset, model, algorithm
 
     def main_loop(self):
-        if self.algorithm is None:
-            self.model.train(self.dataset)
-        else:
-            self.algorithm.train(self.model, self.dataset)
+        self.algorithm.train(self.model, self.dataset)
 
 
 if __name__ == "__main__":
