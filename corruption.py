@@ -18,7 +18,6 @@ else:
     import theano.sandbox.rng_mrg
     RandomStreams = theano.sandbox.rng_mrg.MRG_RandomStreams
 
-
 class Corruptor(object):
     def __init__(self, corruption_level, rng=2001):
         """
@@ -36,7 +35,7 @@ class Corruptor(object):
         # The default rng should be build in a deterministic way
         if not hasattr(rng, 'randn'):
             rng = numpy.random.RandomState(rng)
-        seed = int(rng.randint(2 ** 30))
+        seed = int(rng.randint(2**30))
         self.s_rng = RandomStreams(seed)
         self.corruption_level = corruption_level
 
@@ -104,7 +103,6 @@ class BinomialCorruptor(Corruptor):
         else:
             return [self._corrupt(inp) for inp in inputs]
 
-
 class GaussianCorruptor(Corruptor):
     """
     A Gaussian corruptor transforms inputs by adding zero
@@ -140,7 +138,6 @@ class GaussianCorruptor(Corruptor):
         if isinstance(inputs, tensor.Variable):
             return self._corrupt(inputs)
         return [self._corrupt(inp) for inp in inputs]
-
 
 ##################################################
 def get(str):

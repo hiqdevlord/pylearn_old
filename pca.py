@@ -5,25 +5,16 @@ from sys import stderr
 import numpy
 import theano
 from theano import tensor
-from theano.sparse import SparseType, structured_dot
-from theano.sparse.basic import _is_sparse_variable
+import theano.sparse as TS
 from pylearn.algorithms import pca_online_estimator
-from scipy import linalg
-from scipy.sparse.csr import csr_matrix
-
-try:
-    from scipy.sparse.linalg import eigen_symmetric
-except ImportError:
-    print >> stderr, 'Cannot import scipy.sparse.linalg.eigen_symmetric.' \
-        ' Note: this was renamed eigsh in scipy 0.9.'
-    sys.exit(1)
+from scipy import linalg, sparse
+N= numpy
 
 # Local imports
 from .base import Block
 from .utils import sharedX
 
 floatX = theano.config.floatX
-
 
 class PCA(Block):
     """
@@ -53,38 +44,28 @@ class PCA(Block):
         self.v = None
         self.mean = None
 
-        self.component_cutoff = theano.shared(
-                                    theano._asarray(0, dtype='int64'),
-                                    name='component_cutoff')
+        self.component_cutoff = theano.shared(theano._asarray(0, dtype='int64'),
+            name='component_cutoff')
 
         # This module really has no adjustable parameters -- once train()
         # is called once, they are frozen, and are not modified via gradient
         # descent.
         self._params = []
 
-    def train(self, X, mean=None):
+    def train(self, X):
         """
         Compute the PCA transformation matrix.
 
-        Given a rectangular matrix X = USV such that S is a diagonal matrix
-        with X's singular values along its diagonal, returns W = V^-1.
-
-        If mean is provided, X will not be centered first.
-
-        :type X: numpy.ndarray, shape (n, d)
-        :param X: matrix on which to train PCA
-
-        :type mean: numpy.ndarray, shape (d)
-        :param mean: feature means
+        Given a rectangular matrix X = USV such that S is a diagonal matrix with
+        X's singular values along its diagonal, computes and returns W = V^-1.
         """
 
         if self.num_components is None:
             self.num_components = X.shape[1]
 
         # Center each feature.
-        if mean is None:
-            mean = X.mean(axis=0)
-            X = X - mean
+        mean = X.mean(axis=0)
+        X = X - mean
 
         # Compute eigen{values,vectors} of the covariance matrix.
         v, W = self._cov_eigen(X)
@@ -97,6 +78,7 @@ class PCA(Block):
         self.mean = sharedX(mean, name='mean')
 
         # Filter out unwanted components, permanently.
+        #TODO-- scipy.linalg can solve for just the wanted components, this should be faster than solving for all and then dropping some
         self._update_cutoff()
         component_cutoff = self.component_cutoff.get_value(borrow=True)
         self.v.set_value(self.v.get_value(borrow=True)[:component_cutoff])
@@ -129,8 +111,7 @@ class PCA(Block):
 
         v = self.v.get_value(borrow=True)
         var_mask = v / v.sum() > self.min_variance
-        assert numpy.any(var_mask), \
-            'No components exceed the given min. variance'
+        assert numpy.any(var_mask), 'No components exceed the given min. variance'
         var_cutoff = 1 + numpy.where(var_mask)[0].max()
 
         self.component_cutoff.set_value(min(var_cutoff, self.num_components))
@@ -143,8 +124,93 @@ class PCA(Block):
             all eigenvalues in decreasing order
             matrix containing corresponding eigenvectors in its columns
         """
-        raise NotImplementedError('_cov_eigen')
+        raise NotImplementedError('_cov _eigen')
 
+
+class SparseMatPCA(PCA):
+    """ Does PCA on sparse  matrices. Does not do online PCA.
+        This is for the case where X - X.mean() does not fit
+        in memory (because it's dense) but
+        N.dot( (X-X.mean()).T, X-X.mean() ) does  """
+    def __init__(self, minibatch_size=50, **kwargs):
+        super(SparseMatPCA, self).__init__(**kwargs)
+        self.minibatch_size = minibatch_size
+
+    def get_input_type(self):
+        return TS.csr_matrix
+
+    def __call__(self, inputs):
+
+        self._update_cutoff()
+
+        Y = TS.structured_dot(inputs, self.W[:, :self.component_cutoff])
+        Z = Y - tensor.dot(self.mean,self.W[:, :self.component_cutoff])
+
+        if self.whiten:
+            Z /= tensor.sqrt(self.v[:self.component_cutoff])
+        return Z
+
+    def train(self, X):
+        """
+        Compute the PCA transformation matrix.
+
+        Given a rectangular matrix X = USV such that S is a diagonal matrix with
+        X's singular values along its diagonal, computes and returns W = V^-1.
+        """
+
+        assert sparse.issparse(X)
+
+        if self.num_components is None:
+            self.num_components = X.shape[1]
+
+        # Compute mean of the data
+        print 'computing mean'
+        self.mean_ = N.asarray(X.mean(axis=0))[0,:]
+
+        m, n = X.shape
+
+        print 'allocating covariance'
+        cov = N.zeros((n,n))
+
+        batch_size = self.minibatch_size
+
+
+        for i in xrange(0,m,batch_size):
+            print '\tprocessing example '+str(i)
+            end = min(m,i+batch_size)
+            x = X[i:end,:].todense() - self.mean_
+            assert x.shape[0] == end - i
+
+
+
+            prod = N.dot(x.T , x)
+            assert prod.shape == (n,n)
+
+            cov += prod
+
+        cov /= m
+
+        v, W = linalg.eigh(cov)
+
+        # The resulting components are in *ascending* order of eigenvalue, and
+        # W contains eigenvectors in its *columns*, so we simply reverse both.
+        v, W = v[::-1], W[:, ::-1]
+
+
+
+        # Build Theano shared variables
+        # For the moment, I do not use borrow=True because W and v are
+        # subtensors, and I want the original memory to be freed
+        self.W = sharedX(W, name='W', borrow=False)
+        self.v = sharedX(v, name='v', borrow=False)
+        self.mean = sharedX(self.mean_, name='mean')
+
+        # Filter out unwanted components, permanently.
+        #TODO-- scipy.linalg can solve for just the wanted components, this should be faster than solving for all and then dropping some
+        self._update_cutoff()
+        component_cutoff = self.component_cutoff.get_value(borrow=True)
+        self.v.set_value(self.v.get_value(borrow=True)[:component_cutoff])
+        self.W.set_value(self.W.get_value(borrow=True)[:, :component_cutoff])
 
 class OnlinePCA(PCA):
     def __init__(self, minibatch_size=500, **kwargs):
@@ -159,16 +225,14 @@ class OnlinePCA(PCA):
         num_components = min(self.num_components, X.shape[1])
 
         pca_estimator = pca_online_estimator.PcaOnlineEstimator(X.shape[1],
-            n_eigen=num_components,
-            minibatch_size=self.minibatch_size,
-            centering=False
+            n_eigen=num_components, minibatch_size=self.minibatch_size, centering=False
         )
 
         print >> stderr, '*' * 50
         for i in range(X.shape[0]):
             if (i + 1) % (X.shape[0] / 50) == 0:
-                stderr.write('|')  # suppresses newline/whitespace.
-            pca_estimator.observe(X[i, :])
+                stderr.write('|') # suppresses newline/whitespace.
+            pca_estimator.observe(X[i,:])
         print >> stderr
 
         v, W = pca_estimator.getLeadingEigen()
@@ -178,6 +242,17 @@ class OnlinePCA(PCA):
         # transpose W.
         return v[::-1], W.T[:, ::-1]
 
+class CovEigPCA(PCA):
+    def _cov_eigen(self, X):
+        """
+        Perform direct computation of covariance matrix eigen{values,vectors}.
+        """
+
+        v, W = linalg.eigh(numpy.cov(X.T))
+
+        # The resulting components are in *ascending* order of eigenvalue, and
+        # W contains eigenvectors in its *columns*, so we simply reverse both.
+
 
 class CovEigPCA(PCA):
     def _cov_eigen(self, X):
@@ -185,13 +260,11 @@ class CovEigPCA(PCA):
         Perform direct computation of covariance matrix eigen{values,vectors}.
         """
 
-        v, W = linalg.eigh(numpy.cov(X.T),
-            eigvals=(X.shape[1] - self.num_components, X.shape[1] - 1))
+        v, W = linalg.eigh(numpy.cov(X.T))
 
         # The resulting components are in *ascending* order of eigenvalue, and
         # W contains eigenvectors in its *columns*, so we simply reverse both.
         return v[::-1], W[:, ::-1]
-
 
 class SVDPCA(PCA):
     def _cov_eigen(self, X):
@@ -208,60 +281,6 @@ class SVDPCA(PCA):
         # simply square it.
         return s ** 2, Vh.T
 
-
-class SparsePCA(PCA):
-    def train(self, X, mean=None):
-        n, d = X.shape
-        # Can't subtract a sparse vector from a sparse matrix, apparently,
-        # so here I repeat the vector to construct a matrix.
-        mean = X.mean(axis=0)
-        mean_matrix = csr_matrix(mean.repeat(n).reshape((d, n))).T
-        X = X - mean_matrix
-
-        super(SparsePCA, self).train(X, mean=numpy.asarray(mean).squeeze())
-
-    def _cov_eigen(self, X):
-        """
-        Perform direct computation of covariance matrix eigen{values,vectors},
-        given a scipy.sparse matrix.
-        """
-
-        v, W = eigen_symmetric(X.T.dot(X) / X.shape[0], k=self.num_components)
-
-        # The resulting components are in *ascending* order of eigenvalue, and
-        # W contains eigenvectors in its *columns*, so we simply reverse both.
-        return v[::-1], W[:, ::-1]
-
-    def __call__(self, inputs):
-        """
-        Compute and return the PCA transformation of sparse data.
-
-        Precondition: self.mean has been subtracted from inputs.
-        The reason for this is that, as far as I can tell, there is no way to
-        subtract a vector from a sparse matrix without constructing an intermediary
-        dense matrix, in theano; even the hack used in train() won't do, because
-        there is no way to symbolically construct a sparse matrix by repeating a
-        vector (again, as far as I can tell).
-
-        :type inputs: scipy.sparse matrix object, shape (n, d)
-        :param inputs: sparse matrix on which to compute PCA
-        """
-
-        # Update component cutoff, in case min_variance or num_components has
-        # changed (or both).
-        self._update_cutoff()
-
-        Y = structured_dot(inputs, self.W[:, :self.component_cutoff])
-        if self.whiten:
-            Y /= tensor.sqrt(self.v[:self.component_cutoff])
-        return Y
-
-    def function(self, name=None):
-        """ Returns a compiled theano function to compute a representation """
-        inputs = SparseType('csr', dtype=floatX)()
-        return theano.function([inputs], self(inputs), name=name)
-
-
 ##################################################
 def get(str):
     """ Evaluate str into an autoencoder object, if it exists """
@@ -271,8 +290,9 @@ def get(str):
     else:
         raise NameError(str)
 
-
 ##################################################
+
+
 if __name__ == "__main__":
     """
     Load a dataset; compute a PCA transformation matrix from the training subset
@@ -332,7 +352,7 @@ if __name__ == "__main__":
 
     # Load dataset.
     data = load_data({'dataset': args.dataset})
-    [train_data, valid_data, test_data] = map(lambda(x): x.get_value(borrow=True), data)
+    [train_data, valid_data, test_data] = map (lambda(x): x.get_value(borrow=True), data)
     print >> stderr, "Dataset shapes:", map(lambda(x): get_constant(x.shape), data)
 
     # PCA base-class constructor arguments.
