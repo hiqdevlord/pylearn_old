@@ -1,25 +1,15 @@
 # Standard library imports
-import sys
+from sys import stderr
 
 # Third-party imports
 import numpy
 from scipy import linalg, sparse
-# Warning: ridiculous.
 try:
-    # scipy 0.9
-    from scipy.sparse.linalg import eigsh as eigen_symmetric
+    from scipy.sparse.linalg import eigen_symmetric
 except ImportError:
-    try:
-        # scipy 0.8
-        from scipy.sparse.linalg import eigen_symmetric
-    except ImportError:
-        try:
-            # scipy 0.7
-            from scipy.sparse.linalg.eigen.arpack import eigen_symmetric
-        except ImportError:
-            print >> sys.stderr, 'Cannot import any kind of symmetric eigen' \
-                ' decomposition function from scipy.sparse.linalg'
-            sys.exit(1)
+    print >> stderr, 'Cannot import scipy.sparse.linalg.eigen_symmetric.' \
+        ' Note: this was renamed eigsh in scipy 0.9.'
+    sys.exit(1)
 from scipy.sparse.csr import csr_matrix
 import theano
 from theano import tensor
@@ -244,12 +234,12 @@ class OnlinePCA(PCA):
             centering=False
         )
 
-        print >> sys.stderr, '*' * 50
+        print >> stderr, '*' * 50
         for i in range(X.shape[0]):
             if (i + 1) % (X.shape[0] / 50) == 0:
-                sys.stderr.write('|')  # suppresses newline/whitespace.
+                stderr.write('|')  # suppresses newline/whitespace.
             pca_estimator.observe(X[i, :])
-        print >> sys.stderr
+        print >> stderr
 
         v, W = pca_estimator.getLeadingEigen()
 
@@ -303,7 +293,7 @@ class SVDPCA(PCA):
 
 class SparsePCA(PCA):
     def train(self, X, mean=None):
-        print >> sys.stderr, 'WARNING: You should probably be using SparseMatPCA, ' \
+        print >> stderr, 'WARNING: You should probably be using SparseMatPCA, ' \
             'unless your design matrix fits in memory.'
 
         n, d = X.shape
@@ -428,7 +418,7 @@ if __name__ == "__main__":
     # Load dataset.
     data = load_data({'dataset': args.dataset})
     [train_data, valid_data, test_data] = map(lambda(x): x.get_value(borrow=True), data)
-    print >> sys.stderr, "Dataset shapes:", map(lambda(x): get_constant(x.shape), data)
+    print >> stderr, "Dataset shapes:", map(lambda(x): get_constant(x.shape), data)
 
     # PCA base-class constructor arguments.
     conf = {
@@ -464,6 +454,6 @@ if __name__ == "__main__":
     pca_transform = theano.function([inputs], pca(inputs))
     valid_pca = pca_transform(valid_data)
     test_pca = pca_transform(test_data)
-    print >> sys.stderr, "New shapes:", map(numpy.shape, [valid_pca, test_pca])
+    print >> stderr, "New shapes:", map(numpy.shape, [valid_pca, test_pca])
 
     # TODO: Compute ALC here when the code using the labels is ready.
