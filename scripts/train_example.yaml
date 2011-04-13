@@ -17,6 +17,5 @@
     "algorithm": !obj:framework.training_algorithms.demo.Demo {
                 "base_lr"  :  1e-5
     },
-    "save_path" : "example_lcc.pkl"
 }
 

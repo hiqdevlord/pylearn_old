@@ -4,12 +4,11 @@ from pylearn.datasets import cifar10
 
 class CIFAR10(dense_design_matrix.DenseDesignMatrix):
     def __init__(self, which_set):
-
-        #dear pylearn.datasets.cifar: there is no such thing as the cifar10 validation set. quit pretending that there is.
-        orig = cifar10.cifar10(ntrain=50000,nvalid=0,ntest=10000)
+        orig = cifar10.cifar10()
 
         Xs = {
                 'train' : orig.train.x,
+                'valid' : orig.valid.x,
                 'test'  : orig.test.x
             }
 
