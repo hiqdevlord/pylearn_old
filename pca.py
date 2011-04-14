@@ -1,30 +1,30 @@
 # Standard library imports
-import sys
+from sys import stderr
 
 # Third-party imports
 import numpy
-from scipy import linalg, sparse
-# Warning: ridiculous.
-try:
-    # scipy 0.9
-    from scipy.sparse.linalg import eigsh as eigen_symmetric
-except ImportError:
-    try:
-        # scipy 0.8
-        from scipy.sparse.linalg import eigen_symmetric
-    except ImportError:
-        try:
-            # scipy 0.7
-            from scipy.sparse.linalg.eigen.arpack import eigen_symmetric
-        except ImportError:
-            print >> sys.stderr, 'Cannot import any kind of symmetric eigen' \
-                ' decomposition function from scipy.sparse.linalg'
-            sys.exit(1)
-from scipy.sparse.csr import csr_matrix
 import theano
 from theano import tensor
-from theano.sparse import SparseType, structured_dot
+import theano.sparse as TS
 from pylearn.algorithms import pca_online_estimator
+from scipy import linalg, sparse
+N= numpy
+from theano.sparse import SparseType, structured_dot
+from theano.sparse.basic import _is_sparse_variable
+from pylearn.algorithms import pca_online_estimator
+from scipy import linalg
+from scipy.sparse.csr import csr_matrix
+
+try:
+    from scipy.sparse.linalg import eigen_symmetric
+except ImportError:
+    #this was renamed to eigsh in scipy 0.9
+    try:
+        from scipy.sparse.linalg import eigsh as eigen_symmetric
+    except:
+        print "couldn't import eigsh / eigen_symmetric from scipy.linalg.sparse, some of your pca functions may randomly fail later"
+        print "the fact that somebody is using this doesn't bode well since it's unlikely that the covariance matrix is sparse"
+
 
 # Local imports
 from .base import Block
@@ -127,6 +127,24 @@ class PCA(Block):
             Y /= tensor.sqrt(self.v[:self.component_cutoff])
         return Y
 
+    def reconstruct(self, inputs, add_mean = True):
+        """
+        Given a PCA transformation of the current data, compute and return
+        the reconstruction of the original input """
+
+        self._update_cutff()
+
+        if self.whiten:
+            inputs *= tensor.sqrt(self.v[:self.component_cutoff])
+
+        X = tensor.dot(inputs,self.W[:,:self.component_cutoff].T)
+
+        if add_mean:
+            X = X + self.mean
+
+        return X
+
+
     def _update_cutoff(self):
         """
         Update component cutoff shared var, based on current parameters.
@@ -159,39 +177,23 @@ class SparseMatPCA(PCA):
         This is for the case where X - X.mean() does not fit
         in memory (because it's dense) but
         N.dot( (X-X.mean()).T, X-X.mean() ) does  """
-    def __init__(self, batch_size=50, **kwargs):
+    def __init__(self, minibatch_size=50, **kwargs):
         super(SparseMatPCA, self).__init__(**kwargs)
-        self.minibatch_size = batch_size
+        self.minibatch_size = minibatch_size
 
     def get_input_type(self):
-        return csr_matrix
+        return TS.csr_matrix
 
-    def _cov_eigen(self, X):
-        n, d = X.shape
+    def __call__(self, inputs):
 
-        cov = numpy.zeros((d, d))
-        batch_size = self.minibatch_size
+        self._update_cutoff()
 
-        for i in xrange(0, n, batch_size):
-            print '\tprocessing example', str(i)
-            end = min(n, i + batch_size)
-            x = X[i:end, :].todense() - self.mean_
-            assert x.shape[0] == end - i
+        Y = TS.structured_dot(inputs, self.W[:, :self.component_cutoff])
+        Z = Y - tensor.dot(self.mean,self.W[:, :self.component_cutoff])
 
-            prod = numpy.dot(x.T, x)
-            assert prod.shape == (d, d)
-
-            cov += prod
-
-        cov /= n
-
-        print 'computing eigens'
-        v, W = linalg.eigh(cov, eigvals=(d - self.num_components, d - 1))
-
-        # The resulting components are in *ascending* order of eigenvalue, and
-        # W contains eigenvectors in its *columns*, so we simply reverse both.
-        v, W = v[::-1], W[:, ::-1]
-        return v, W
+        if self.whiten:
+            Z /= tensor.sqrt(self.v[:self.component_cutoff])
+        return Z
 
     def train(self, X):
         """
@@ -203,27 +205,57 @@ class SparseMatPCA(PCA):
 
         assert sparse.issparse(X)
 
-        # Compute feature means.
+        if self.num_components is None:
+            self.num_components = X.shape[1]
+
+        # Compute mean of the data
         print 'computing mean'
-        self.mean_ = numpy.asarray(X.mean(axis=0))[0, :]
+        self.mean_ = N.asarray(X.mean(axis=0))[0,:]
 
-        super(SparseMatPCA, self).train(X, mean=self.mean_)
+        m, n = X.shape
 
-    def __call__(self, inputs):
+        print 'allocating covariance'
+        cov = N.zeros((n,n))
 
+        batch_size = self.minibatch_size
+
+
+        for i in xrange(0,m,batch_size):
+            print '\tprocessing example '+str(i)
+            end = min(m,i+batch_size)
+            x = X[i:end,:].todense() - self.mean_
+            assert x.shape[0] == end - i
+
+
+
+            prod = N.dot(x.T , x)
+            assert prod.shape == (n,n)
+
+            cov += prod
+
+        cov /= m
+
+        v, W = linalg.eigh(cov)
+
+        # The resulting components are in *ascending* order of eigenvalue, and
+        # W contains eigenvectors in its *columns*, so we simply reverse both.
+        v, W = v[::-1], W[:, ::-1]
+
+
+
+        # Build Theano shared variables
+        # For the moment, I do not use borrow=True because W and v are
+        # subtensors, and I want the original memory to be freed
+        self.W = sharedX(W, name='W', borrow=False)
+        self.v = sharedX(v, name='v', borrow=False)
+        self.mean = sharedX(self.mean_, name='mean')
+
+        # Filter out unwanted components, permanently.
+        #TODO-- scipy.linalg can solve for just the wanted components, this should be faster than solving for all and then dropping some
         self._update_cutoff()
-
-        Y = structured_dot(inputs, self.W[:, :self.component_cutoff])
-        Z = Y - tensor.dot(self.mean, self.W[:, :self.component_cutoff])
-
-        if self.whiten:
-            Z /= tensor.sqrt(self.v[:self.component_cutoff])
-        return Z
-
-    def function(self, name=None):
-        """ Returns a compiled theano function to compute a representation """
-        inputs = SparseType('csr', dtype=floatX)()
-        return theano.function([inputs], self(inputs), name=name)
+        component_cutoff = self.component_cutoff.get_value(borrow=True)
+        self.v.set_value(self.v.get_value(borrow=True)[:component_cutoff])
+        self.W.set_value(self.W.get_value(borrow=True)[:, :component_cutoff])
 
 
 class OnlinePCA(PCA):
@@ -244,12 +276,12 @@ class OnlinePCA(PCA):
             centering=False
         )
 
-        print >> sys.stderr, '*' * 50
+        print >> stderr, '*' * 50
         for i in range(X.shape[0]):
             if (i + 1) % (X.shape[0] / 50) == 0:
-                sys.stderr.write('|')  # suppresses newline/whitespace.
+                stderr.write('|')  # suppresses newline/whitespace.
             pca_estimator.observe(X[i, :])
-        print >> sys.stderr
+        print >> stderr
 
         v, W = pca_estimator.getLeadingEigen()
 
@@ -303,9 +335,6 @@ class SVDPCA(PCA):
 
 class SparsePCA(PCA):
     def train(self, X, mean=None):
-        print >> sys.stderr, 'WARNING: You should probably be using SparseMatPCA, ' \
-            'unless your design matrix fits in memory.'
-
         n, d = X.shape
         # Can't subtract a sparse vector from a sparse matrix, apparently,
         # so here I repeat the vector to construct a matrix.
@@ -428,7 +457,7 @@ if __name__ == "__main__":
     # Load dataset.
     data = load_data({'dataset': args.dataset})
     [train_data, valid_data, test_data] = map(lambda(x): x.get_value(borrow=True), data)
-    print >> sys.stderr, "Dataset shapes:", map(lambda(x): get_constant(x.shape), data)
+    print >> stderr, "Dataset shapes:", map(lambda(x): get_constant(x.shape), data)
 
     # PCA base-class constructor arguments.
     conf = {
@@ -464,6 +493,6 @@ if __name__ == "__main__":
     pca_transform = theano.function([inputs], pca(inputs))
     valid_pca = pca_transform(valid_data)
     test_pca = pca_transform(test_data)
-    print >> sys.stderr, "New shapes:", map(numpy.shape, [valid_pca, test_pca])
+    print >> stderr, "New shapes:", map(numpy.shape, [valid_pca, test_pca])
 
     # TODO: Compute ALC here when the code using the labels is ready.
