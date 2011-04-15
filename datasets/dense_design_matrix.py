@@ -1,8 +1,6 @@
 import numpy as N
-import copy
 
 class DenseDesignMatrix(object):
-
     def __init__(self, X, y = None, view_converter = None, rng = None):
         self.X = X
         self.y = y
@@ -10,38 +8,20 @@ class DenseDesignMatrix(object):
         if rng is None:
             rng = N.random.RandomState([17,2,946])
         #
-        self.default_rng = copy.copy(rng)
         self.rng = rng
-    #
-
-    def reset_RNG(self):
-        if 'default_rng' not in dir(self):
-            self.default_rng = N.random.RandomState([17,2,946])
-        self.rng = copy.copy(self.default_rng)
     #
 
     def apply_preprocessor(self, preprocessor, can_fit = False):
         preprocessor.apply(self, can_fit)
     #
 
-    def get_topological_view(self, mat = None):
+    def get_topological_view(self):
         if self.view_converter is None:
             raise Exception("Tried to call get_topological_view on a dataset that has no view converter")
         #
 
-        if mat is None:
-            mat = self.X
-
-        return self.view_converter.design_mat_to_topo_view(mat)
+        return self.view_converter.design_mat_to_topo_view(self.X)
     #
-
-    def get_weights_view(self, mat):
-        if self.view_converter is None:
-            raise Exception("Tried to call get_weights_view on a dataset that has no view converter")
-        #
-
-        return self.view_converter.design_mat_to_weights_view(mat)
-
 
     def set_topological_view(self, V):
         assert not N.any(N.isnan(V))
@@ -67,9 +47,6 @@ class DenseDesignMatrix(object):
     def get_batch_topo(self, batch_size):
         return self.view_converter.design_mat_to_topo_view(self.get_batch_design(batch_size))
     #
-
-    def view_shape(self):
-        return self.view_converter.view_shape()
 #
 
 class DefaultViewConverter:
@@ -80,9 +57,6 @@ class DefaultViewConverter:
             self.pixels_per_channel *= dim
         #
     #
-
-    def view_shape(self):
-        return self.shape
 
     def design_mat_to_topo_view(self, X):
         batch_size = X.shape[0]
@@ -103,11 +77,6 @@ class DefaultViewConverter:
 
         return rval
     #
-
-    def design_mat_to_weights_view(self, X):
-        return self.design_mat_to_topo_view(X)
-    #
-
 
     def topo_view_to_design_mat(self, V):
         if N.any( N.asarray(self.shape) != N.asarray(V.shape[1:])):
