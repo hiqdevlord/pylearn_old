@@ -112,26 +112,14 @@ class  PatchViewer:
 
 
     def show(self):
-        try:
-            img = self.get_img()
-            img.show()
-        except:
-            print "Warning, your version of PIL sucks"
-            import matplotlib.pyplot
-            matplotlib.pyplot.imshow(self.image)
-            matplotlib.pyplot.show()
-            print 'waiting'
-            x = raw_input()
-            print 'running'
-
+		self.get_img().show()
 
     def get_img(self):
         #print 'image range '+str((self.image.min(), self.image.max()))
         x = N.cast['int8'](self.image*255.0)
         if x.shape[2] == 1:
             x = x[:,:,0]
-        img = Image.fromarray(x)
-        return img
+        return Image.fromarray(x)
 
     def save(self, path):
         self.get_img().save(path)
