@@ -2,7 +2,6 @@
 from .utlc import (
         get_constant,
         sharedX,
-        as_floatX,
         subdict,
         safe_update,
         getboth,

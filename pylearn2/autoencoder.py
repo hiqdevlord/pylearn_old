@@ -15,6 +15,7 @@ from .utils import sharedX
 from .utils.theano_graph import is_pure_elemwise
 
 theano.config.warn.sum_div_dimshuffle_bug = False
+floatX = theano.config.floatX
 
 if 0:
     print 'WARNING: using SLOW rng'
@@ -444,7 +445,9 @@ class ContractingAutoencoder(Autoencoder):
 
 def build_stacked_ae(nvis, nhids, act_enc, act_dec,
                      tied_weights=False, irange=1e-3, rng=None,
-                     corruptor=None, contracting=False):
+                     corruptor=None, contracting=False,
+                     solution=None, sparse_penalty=None,
+                     sparsity_target=None, sparsity_target_penalty=None):
     """Allocate a stack of autoencoders."""
     if not hasattr(rng, 'randn'):
         rng = numpy.random.RandomState(rng)
@@ -461,6 +464,9 @@ def build_stacked_ae(nvis, nhids, act_enc, act_dec,
             final[c] = [locals()[c]] * len(nhids)
     # The number of visible units in each layer is the initial input
     # size and the first k-1 hidden unit sizes.
+    # solution, sparse_penalty, sparsity_target,
+    # and sparsity_target_penalty have the same size as nhids.
+    # They can add an L1 penalty, a quadratic to each layer of the stacked ae.
     nviss = [nvis] + nhids[:-1]
     seq = izip(nhids, nviss,
         final['act_enc'],
@@ -486,3 +492,13 @@ def build_stacked_ae(nvis, nhids, act_enc, act_dec,
 
     # Create the stack
     return StackedBlocks(layers)
+
+
+##################################################
+def get(str):
+    """ Evaluate str into an autoencoder object, if it exists """
+    obj = globals()[str]
+    if issubclass(obj, Autoencoder):
+        return obj
+    else:
+        raise NameError(str)

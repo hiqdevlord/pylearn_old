@@ -52,7 +52,7 @@ class BinaryCrossEntropy(SupervisedCost):
     e.g., one-hot codes).
     """
     def __call__(self, prediction, target):
-        ce = lambda x, z: -((x * tensor.log(z) + (1 - x) * tensor.log(1 - z)).sum(axis=1))
+        ce = lambda x, z: x * tensor.log(z) + (1 - x) * tensor.log(1 - z)
         if isinstance(prediction, tensor.Variable):
             return ce(prediction, target)
         return sum(
@@ -86,7 +86,16 @@ class OneHotCrossEntropy(SupervisedCost):
         lp = tensor.log(prediction)
         # LP[arange(batch_size),target] is a vector v containing
         # [LP[0,target[0]], ..., LP[batch_size-1,target[batch_size-1]]]
-        v = lp[tensor.arange(batch_size), target]
-        # We return the negative log-likelihood of each element of
-        # the minibatch
-        return -v
+        v = lp[tensor.arange(batch_size), target])
+        # We return the mean negative log-likelihood across the minibatch.
+        return -T.mean(v)
+
+
+##################################################
+def get(str):
+    """ Evaluate str into a cost object, if it exists """
+    obj = globals()[str]
+    if issubclass(obj, SupervisedCost):
+        return obj
+    else:
+        raise NameError(str)

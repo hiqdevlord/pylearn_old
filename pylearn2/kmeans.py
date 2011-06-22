@@ -12,6 +12,7 @@ class KMeans(Block):
     Block that outputs a vector of probabilities that a sample belong to means
     computed during training.
     """
+
     def __init__(self, k, convergence_th=1e-6, max_iter=None, verbose=False):
         """
         Parameters in conf:
@@ -163,7 +164,6 @@ class KMeans(Block):
             dists[:, i] = numpy.square((X - mu[i, :])).sum(axis=1)
         return dists / dists.sum(axis=1).reshape(-1, 1)
 
-
 if __name__ == '__main__':
     import theano
     from theano import tensor
@@ -211,7 +211,7 @@ if __name__ == '__main__':
 
     # Allocate a denoising autoencoder with binomial noise corruption.
     corruptor = GaussianCorruptor(corruption_level=conf['corruption_level'])
-    da = DenoisingAutoencoder(corruptor, conf['nvis'], conf['nhid'],
+    da = DenoisingAutoencoder(corruptor, conf['nvis'], conf['nhid'], 
                               conf['act_enc'], conf['act_dec'],
                               tied_weights=conf['tied_weights'],
                               irange=conf['irange'])

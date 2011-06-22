@@ -1,5 +1,5 @@
 
-class InstrumentRecord(object):
+class InstrumentRecord:
     """ A class for recording various instrumented values during learning """
 
     def __init__(self):
@@ -48,6 +48,6 @@ class InstrumentRecord(object):
         #
     #
 #
+        
 
-
-
+        

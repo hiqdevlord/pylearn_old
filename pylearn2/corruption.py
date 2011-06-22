@@ -9,6 +9,7 @@ from theano import tensor
 
 # Shortcuts
 theano.config.warn.sum_div_dimshuffle_bug = False
+floatX = theano.config.floatX
 
 if 0:
     print 'WARNING: using SLOW rng'
@@ -77,7 +78,7 @@ class BinomialCorruptor(Corruptor):
             size=x.shape,
             n=1,
             p=1 - self.corruption_level,
-            dtype=theano.config.floatX
+            dtype=floatX
         ) * x
 
     def __call__(self, inputs):
@@ -115,7 +116,7 @@ class GaussianCorruptor(Corruptor):
             size=x.shape,
             avg=0,
             std=self.corruption_level,
-            dtype=theano.config.floatX
+            dtype=floatX
         ) + x
 
     def __call__(self, inputs):
@@ -139,3 +140,13 @@ class GaussianCorruptor(Corruptor):
         if isinstance(inputs, tensor.Variable):
             return self._corrupt(inputs)
         return [self._corrupt(inp) for inp in inputs]
+
+
+##################################################
+def get(str):
+    """ Evaluate str into a corruptor object, if it exists """
+    obj = globals()[str]
+    if issubclass(obj, Corruptor):
+        return obj
+    else:
+        raise NameError(str)

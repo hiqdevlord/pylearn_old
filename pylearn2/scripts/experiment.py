@@ -27,6 +27,7 @@ import pylearn2.rbm
 from pylearn2 import utils
 from pylearn2.pca import PCA
 from pylearn2.base import StackedBlocks
+from pylearn2.cost import SquaredError
 from pylearn2.utils import BatchIterator
 from pylearn2.optimizer import SGDOptimizer
 from pylearn2.autoencoder import Autoencoder, ContractingAutoencoder
@@ -69,6 +70,7 @@ def create_pca(conf, layer, data, model=None):
     # Save model parameters
     pca.save(filename)
     return pca
+
 
 def create_ae(conf, layer, data, model=None):
     """
@@ -170,6 +172,7 @@ def create_ae(conf, layer, data, model=None):
 
     # Return the autoencoder object
     return ae
+
 
 def create_rbm(conf, layer, data, label=None, model=None):
     """
@@ -323,6 +326,7 @@ def create_rbm(conf, layer, data, label=None, model=None):
 
     # Return the RBM object
     return rbm
+
 
 if __name__ == "__main__":
     # First layer = PCA-75 whiten

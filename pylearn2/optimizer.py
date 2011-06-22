@@ -10,7 +10,9 @@ from pylearn.gd.sgd import sgd_updates
 
 # Local imports
 from .base import Optimizer
-from .utils import as_floatX, safe_update, sharedX
+from .utils import safe_update, sharedX
+
+floatX = theano.config.floatX
 
 
 class SGDOptimizer(Optimizer):
@@ -20,6 +22,7 @@ class SGDOptimizer(Optimizer):
     Supports constant learning rates, or decreasing like 1/t after an initial
     period.
     """
+
     def __init__(self, params, base_lr, anneal_start=None, **kwargs):
         """
         Construct an SGDOptimizer.
@@ -54,9 +57,9 @@ class SGDOptimizer(Optimizer):
         else:
             self.params = params.params()
         if anneal_start == None:
-            self.anneal_start = None
+            self.anneal_start = inf
         else:
-            self.anneal_start = as_floatX(anneal_start)
+            self.anneal_start = tensor.cast(anneal_start, floatX)
 
         # Set up the clipping values
         self.clipping_values = {}
@@ -107,7 +110,7 @@ class SGDOptimizer(Optimizer):
         # Take care of learning rate scales for individual parameters
         self.learning_rates = {}
         # Base learning rate per example.
-        self.base_lr = theano._asarray(base_lr, dtype=theano.config.floatX)
+        self.base_lr = theano._asarray(base_lr, dtype=floatX)
 
         # Keep track of names already seen
         lr_names_seen = set()
@@ -157,15 +160,13 @@ class SGDOptimizer(Optimizer):
         ups = {}
 
         # Annealing coefficient. Here we're using a formula of
-        # min(base_lr, anneal_start / (iteration + 1))
-        if self.anneal_start is None:
-            annealed = sharedX(self.base_lr)
-        else:
-            frac = self.anneal_start / (self.iteration + 1.)
-            annealed = tensor.minimum(
-                    as_floatX(frac),
-                    self.base_lr  # maximum learning rate
-                    )
+        # max(0.0, min(base_lr, anneal_start / (iteration + 1))
+        frac = self.anneal_start / (self.iteration + 1.)
+        annealed = tensor.clip(
+            tensor.cast(frac, floatX),
+            0.0,          # minimum learning rate
+            self.base_lr  # maximum learning rate
+        )
 
         # Update the shared variable for the annealed learning rate.
         ups[self.annealed] = annealed
@@ -246,3 +247,12 @@ class SGDOptimizer(Optimizer):
         """
         grads = [tensor.grad(cost, p) for p in self.params]
         return self.updates(gradients=grads)
+
+##################################################
+def get(str):
+    """Evaluate str into an Optimizer object, if it exists."""
+    obj = globals().get(str, None)
+    if issubclass(obj, Optimizer):
+        return obj
+    else:
+        raise NameError(str)

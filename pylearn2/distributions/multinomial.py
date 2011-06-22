@@ -1,6 +1,6 @@
 import numpy as N
 
-class Multinomial(object):
+class Multinomial:
 
     def __init__(self,rng,pi, renormalize = False):
 
