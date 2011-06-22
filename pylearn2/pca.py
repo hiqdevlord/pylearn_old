@@ -44,8 +44,6 @@ except ImportError:
 from .base import Block
 from .utils import sharedX
 
-floatX = theano.config.floatX
-
 
 class PCA(Block):
     """
@@ -280,7 +278,7 @@ class SparseMatPCA(PCA):
 
     def function(self, name=None):
         """ Returns a compiled theano function to compute a representation """
-        inputs = SparseType('csr', dtype=floatX)()
+        inputs = SparseType('csr', dtype=theano.config.floatX)()
         return theano.function([inputs], self(inputs), name=name)
 
 
@@ -315,19 +313,6 @@ class OnlinePCA(PCA):
         # and W contains eigenvectors in its *rows*, so we reverse both and
         # transpose W.
         return v[::-1], W.T[:, ::-1]
-
-
-class CovEigPCA(PCA):
-    def _cov_eigen(self, X):
-        """
-        Perform direct computation of covariance matrix eigen{values,vectors}.
-        """
-
-        v, W = linalg.eigh(numpy.cov(X.T),
-            eigvals=(X.shape[1] - self.num_components, X.shape[1] - 1))
-
-        # The resulting components are in *ascending* order of eigenvalue, and
-        # W contains eigenvectors in its *columns*, so we simply reverse both.
 
 
 class CovEigPCA(PCA):
@@ -411,7 +396,7 @@ class SparsePCA(PCA):
 
     def function(self, name=None):
         """ Returns a compiled theano function to compute a representation """
-        inputs = SparseType('csr', dtype=floatX)()
+        inputs = SparseType('csr', dtype=theano.config.floatX)()
         return theano.function([inputs], self(inputs), name=name)
 
 
