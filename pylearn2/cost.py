@@ -24,7 +24,6 @@ class SupervisedCost(object):
         """
         raise NotImplementedError()
 
-
 class SquaredError(SupervisedCost):
     """
     Symbolic expression for squared error between the target
@@ -44,7 +43,6 @@ class SquaredError(SupervisedCost):
             # something like that.
             return sum(imap(msq, prediction, target))
 
-
 class BinaryCrossEntropy(SupervisedCost):
     """
     Symbolic expression for elementwise cross-entropy between target
@@ -58,7 +56,6 @@ class BinaryCrossEntropy(SupervisedCost):
         return sum(
             imap(lambda p, t: ce(p, t).sum(axis=1).mean(), prediction, target)
         )
-
 
 class OneHotCrossEntropy(SupervisedCost):
     """
@@ -90,3 +87,13 @@ class OneHotCrossEntropy(SupervisedCost):
         # We return the negative log-likelihood of each element of
         # the minibatch
         return -v
+
+
+##################################################
+def get(str):
+    """ Evaluate str into a cost object, if it exists """
+    obj = globals()[str]
+    if issubclass(obj, SupervisedCost):
+        return obj
+    else:
+        raise NameError(str)

@@ -10,6 +10,7 @@ from theano import tensor
 
 # Local imports
 from .base import Block, StackedBlocks
+from .scalar import rectifier
 from .utils import sharedX
 from .utils.theano_graph import is_pure_elemwise
 
@@ -341,14 +342,14 @@ class DenoisingAutoencoder(Autoencoder):
         return super(DenoisingAutoencoder, self).reconstruct(corrupted)
 
 
-class ContractiveAutoencoder(Autoencoder):
+class ContractingAutoencoder(Autoencoder):
     """
     A contracting autoencoder works like a regular autoencoder, and adds an
     extra term to its cost function.
     """
     @functools.wraps(Autoencoder.__init__)
     def __init__(self, *args, **kwargs):
-        super(ContractiveAutoencoder, self).__init__(*args, **kwargs)
+        super(ContractingAutoencoder, self).__init__(*args, **kwargs)
         dummyinput = tensor.matrix()
         if not is_pure_elemwise(self.act_enc(dummyinput), [dummyinput]):
             raise ValueError("Invalid encoder activation function: "
@@ -433,7 +434,7 @@ class ContractiveAutoencoder(Autoencoder):
         def penalty(inputs):
             jacobian = self.jacobian_h_x(inputs)
             # Penalize the mean of the L2 norm, basically.
-            L = tensor.sum(jacobian ** 2, axis=(1, 2))
+            L = tensor.sum(jacobian ** 2, axis=(1,2))
             return L
         if isinstance(inputs, tensor.Variable):
             return penalty(inputs)
@@ -476,7 +477,7 @@ def build_stacked_ae(nvis, nhids, act_enc, act_dec,
             raise ValueError("Can't specify denoising and contracting "
                              "objectives simultaneously")
         elif cae:
-            autoenc = ContractiveAutoencoder(*args)
+            autoenc = ContractingAutoencoder(*args)
         elif corr is not None:
             autoenc = DenoisingAutoencoder(corr, *args)
         else:
@@ -485,3 +486,13 @@ def build_stacked_ae(nvis, nhids, act_enc, act_dec,
 
     # Create the stack
     return StackedBlocks(layers)
+
+
+##################################################
+def get(str):
+    """ Evaluate str into an autoencoder object, if it exists """
+    obj = globals()[str]
+    if issubclass(obj, Autoencoder):
+        return obj
+    else:
+        raise NameError(str)
