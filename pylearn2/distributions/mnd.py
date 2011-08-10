@@ -1,15 +1,12 @@
-"""TODO: document me."""
 from scipy.linalg import cholesky, det, solve
 import numpy as N
 import theano.tensor as T
-from theano import config
-from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
-
+from theano import config, shared
+import theano.sandbox.rng_mrg
+RandomStreams = theano.sandbox.rng_mrg.MRG_RandomStreams
 
 class MND(object):
-    """TODO: document me."""
     def __init__(self, sigma, mu, seed=42):
-        """TODO: document me."""
         self.sigma = sigma
         self.mu = mu
         if not (len(mu.shape) == 1):
@@ -19,6 +16,7 @@ class MND(object):
         self.sigma_inv = solve(self.sigma, N.identity(mu.shape[0]),
                                sym_pos=True)
         self.L = cholesky(self.sigma)
+
         self.s_rng = RandomStreams(42)
 
         #Compute logZ
@@ -31,6 +29,7 @@ class MND(object):
 
     def free_energy(self, X):
         #design matrix format
+
         return .5 * T.sum(T.dot(X - self.mu,
                                 T.dot(self.sigma_inv,
                                       T.transpose(X - self.mu))))
@@ -45,13 +44,9 @@ class MND(object):
 
 
 def fit(dataset, n_samples=None):
-    """
-    TODO: document me.
-
-    This would be cleaner as a class method.
-    """
     if n_samples is not None:
         X = dataset.get_batch_design(n_samples)
     else:
         X = dataset.get_design_matrix()
+
     return MND(sigma=N.cov(X.T), mu=X.mean(axis=0))

@@ -1,7 +1,7 @@
 """Support code for YAML parsing of experiment descriptions."""
 import yaml
-from pylearn2.utils.call_check import checked_call
-from pylearn2.utils import serial
+from ..utils.call_check import checked_call
+from ..utils import serial
 
 
 is_initialized = False
