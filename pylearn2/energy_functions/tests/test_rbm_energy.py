@@ -4,7 +4,6 @@ from pylearn2.energy_functions.rbm_energy import GRBM_Type_1
 import numpy as N
 import theano.tensor as T
 from theano import function
-from pylearn2.utils import as_floatX
 
 test_m = 2
 
@@ -58,9 +57,9 @@ class TestGRBM_Type_1:
 
         m = 5
 
-        Vv = as_floatX(N.zeros((m,nv))+rng.randn(nv))
+        Vv = N.zeros((m,nv))+rng.randn(nv)
 
-        Hv = as_floatX(rng.randn(m,nh) > 0.)
+        Hv = rng.randn(m,nh) > 0.
 
         log_Pv = log_P_H_given_V_func(Hv,Vv)
 
@@ -81,12 +80,12 @@ class TestGRBM_Type_1:
 
         m = 2 ** nh
 
-        Vv = as_floatX(N.zeros((m,nv))+rng.randn(nv))
+        Vv = N.zeros((m,nv))+rng.randn(nv)
 
 
         F ,= F_func(Vv[0:1,:])
 
-        Hv = as_floatX(N.zeros((m,nh)))
+        Hv = N.zeros((m,nh))
 
         for i in xrange(m):
             for j in xrange(nh):
@@ -104,11 +103,13 @@ class TestGRBM_Type_1:
 
         m = 10
 
-        Vv = as_floatX(rng.randn(m,nv))
+        Vv = rng.randn(m,nv)
 
         Sv = score_func(Vv)
         gSv = generic_score_func(Vv)
 
+        print Sv
+        print gSv
 
         assert N.allclose(Sv,gSv)
 

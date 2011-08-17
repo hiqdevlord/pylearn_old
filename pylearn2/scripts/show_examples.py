@@ -20,17 +20,8 @@ cols = 20
 
 examples = dataset.get_batch_topo(rows*cols)
 
-norms = N.asarray( [
-        N.sqrt(N.sum(N.square(examples[i,:])))
-                    for i in xrange(examples.shape[0])
-                    ])
-print 'norms of exmaples: '
-print '\tmin: ',norms.min()
-print '\tmean: ',norms.mean()
-print '\tmax: ',norms.max()
+print ('examples range',examples.min(),examples.max(), examples.dtype)
 
-print 'range of elements of examples',(examples.min(),examples.max())
-print 'dtype: ', examples.dtype
 examples /= N.abs(examples).max()
 
 if len(examples.shape) != 4:

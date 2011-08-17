@@ -1,11 +1,9 @@
-"""TODO: document me."""
 import numpy as N
 
-
 class Multinomial(object):
-    """TODO: document me."""
-    def __init__(self, rng, pi, renormalize=False):
-        """TODO: document me."""
+
+    def __init__(self,rng,pi, renormalize = False):
+
         self.pi = pi
         assert self.pi.min() >= 0.0
         self.rng = rng
@@ -16,5 +14,8 @@ class Multinomial(object):
 
     def sample_integer(self, m):
         return N.nonzero(
-            self.rng.multinomial(pvals=self.pi, n=1, size=(m,))
-        )[1]
+                self.rng.multinomial(
+                                        pvals=self.pi,n=1,size=(m,)
+                                    )
+                                )[1]
+

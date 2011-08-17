@@ -27,8 +27,8 @@ import numpy
 from theano import tensor
 
 # Local imports
-from pylearn2.base import Block
-from pylearn2.utils import sharedX
+from .base import Block
+from .utils import sharedX
 
 
 class LogisticRegressionLayer(Block):
