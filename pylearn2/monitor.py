@@ -6,9 +6,14 @@ from pylearn2.config import yaml_parse
 
 
 class Monitor(object):
-    """TODO: class-level docstring. What does this do?"""
+    """A class for monitoring Models while they are being trained
+        It records the number of minibatches and number of examples the model has trained,
+        as well as any number of "channels" that track quantities of interest
+        (examples: the objective function, measures of hidden unit activity, reconstruction
+        error, sum of squared second derivatives,  etc. )
+    """
     def __init__(self, model):
-        """TODO: Document me."""
+        """Makes a monitor for the model-- assumes the model has not been trained at all yet."""
         self.model = model
         self.channels = {}
         self.batches_seen = 0
@@ -18,12 +23,21 @@ class Monitor(object):
         self.names_to_del = []
 
     def set_dataset(self, dataset, batches, batch_size):
-        """TODO: Document me."""
+        """
+            Determines the data used to calculate the values of each channel
+            dataset: the dataset to draw examples from
+            batches: the number of batches of examples to draw
+            batch_size: the number of examples per batch
+        """
         self.dataset = dataset
         self.batches = batches
         self.batch_size = batch_size
 
     def __call__(self):
+        """
+            Runs the model on the monitoring dataset in order to add one
+            data point to each of the channels
+        """
         if self.dirty:
             self.redo_theano()
 
@@ -44,25 +58,34 @@ class Monitor(object):
             for i in xrange(self.batches):
                 X = d.get_batch_design(self.batch_size)
                 self.accum(X)
-            self.finish_record_entry()
+
+
+            print "Monitoring step:"
+            print "\tBatches seen: %d" % self.batches_seen
+            print "\tExamples seen: %d" % self.examples_seen
+            for channel_name in self.channels:
+                channel = self.channels[channel_name]
+                channel.batch_record.append(self.batches_seen)
+                channel.example_record.append(self.examples_seen)
+                val = (channel.val_shared.get_value(borrow=False) /
+                       float(self.batches))
+                channel.val_record.append(val)
+                print "\t%s: %s" % (channel_name, str(val))
+
             d.set_stream_position(s)
 
-    def finish_record_entry(self):
-        """TODO: Document me."""
-        print "Monitoring step:"
-        print "\tBatches seen: %d" % self.batches_seen
-        print "\tExamples seen: %d" % self.examples_seen
-        for channel_name in self.channels:
-            channel = self.channels[channel_name]
-            channel.batch_record.append(self.batches_seen)
-            channel.example_record.append(self.examples_seen)
-            val = (channel.val_shared.get_value(borrow=False) /
-                   float(self.batches))
-            channel.val_record.append(val)
-            print "\t%s: %s" % (channel_name, str(val))
-
     def redo_theano(self):
-        """TODO: document me."""
+        """
+        Practically the same thing as redo_theano in the Model class.
+        Recompiles all theano functions used by the Monitor.
+        This is needed so that if new channels are added, theano's optimizations
+        make sure that the new channels and old channels don't have any redundant
+        calculations.
+        It is also needed to regenerate theano functions after pickling and unpickling,
+        since theano functions should not be pickled.
+        """
+        self.dirty = False
+
         init_names = dir(self)
         updates = {}
         for channel in self.channels.values():
@@ -80,13 +103,23 @@ class Monitor(object):
                                     if name not in init_names])
 
     def register_names_to_del(self, names):
-        """TODO: document me."""
+        """Same as register_names_to_del in the Model class, this is used to
+        avoid pickling fields that can be regenerated with redo_theano"""
         for name in names:
             if name not in self.names_to_del:
                 self.names_to_del.append(name)
 
     def __getstate__(self):
-        """TODO: Document me (why specifically is this needed)"""
+        """In order to avoid pickling a copy of the dataset whenever a monitor
+        is saved, the __getstate__ method replaces the dataset field with the
+        dataset's yaml source. This is not a perfect solution because it won't
+        work with job resuming, which would require saving the state of the dataset's
+        random number generator.
+
+        Like in the Model class, we also need to avoid saving any theano functions,
+        so we delete everything that can be regenerated with redo_theano by
+        deleting the fields in self.names_to_del
+        """
         temp = self.dataset
         if not isinstance(self.dataset, str):
             self.dataset = self.dataset.yaml_src
@@ -100,20 +133,36 @@ class Monitor(object):
         return d
 
     def __setstate__(self, d):
-        """TODO: is this necessary?"""
+        """TODO: is this necessary?
+        IG: I think in some versions of python __getstate__ is ignored if __setstate__ is
+        not implemented but I don't know for sure. People on stackexchange said that but
+        I never verified this firsthand. Fred taught me to write this kind of
+        __setstate__ method whenever I write a __getstate__ method but I was never quite
+        sure why."""
         self.__dict__.update(d)
 
     def add_channel(self, name, ipt, val):
-        """TODO: Document me."""
+        """
+            Asks the monitor to start tracking a new value
+            Can be run even after the monitor is already in use
+
+            Parameters
+            -------------
+            name: The display name in the monitor
+            ipt:  The symbolic tensor which should be clamped to the data
+            val:  The value (function of ipt) to be tracked
+        """
+
         if name in self.channels:
             raise ValueError("Tried to create the same channel twice (%s)" %
                              name)
-        self.channels[name] = Channel(ipt, val)
+        self.channels[name] = Channel(ipt, val, name)
         self.dirty = True
 
     @classmethod
     def get_monitor(cls, model):
-        """TODO: document me."""
+        """Returns a model's monitor.
+        If the model doesn't have a monitor yet, installs one and returns that."""
         if hasattr(model, 'monitor'):
             rval = model.monitor
         else:
@@ -123,10 +172,12 @@ class Monitor(object):
 
 
 class Channel(object):
-    def __init__(self, ipt, val):
+    def __init__(self, ipt, val, name):
         self.ipt = ipt
         self.val = val
-        self.val_shared = shared(0.0)
+
+
+        self.val_shared = shared(0.0, name+"_tracker")
         self.batch_record = []
         self.example_record = []
         self.val_record = []
