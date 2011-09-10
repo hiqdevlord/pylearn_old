@@ -4,15 +4,13 @@ import os
 import time
 import warnings
 import sys
+from pylearn2.utils.string import preprocess
 
 def load(filepath, recurse_depth = 0):
-    try:
-        f = open(filepath,'rb')
-        obj = cPickle.load(f)
-        f.close()
-        return obj
-    except ValueError, e:
-        print 'Failed to open '+filepath+' due to ValueError with string '+str(e)
+    if recurse_depth == 0:
+        filepath = preprocess(filepath)
+
+    def exponential_backoff():
         if recurse_depth > 9:
             print 'Max number of tries exceeded while trying to open '+filepath
             print 'attempting to open via reading string'
@@ -26,7 +24,20 @@ def load(filepath, recurse_depth = 0):
             print "Waiting "+str(nsec)+" seconds and trying again"
             time.sleep(nsec)
             return load(filepath, recurse_depth + 1)
-        #
+
+    try:
+        f = open(filepath,'rb')
+        obj = cPickle.load(f)
+        f.close()
+        return obj
+    except EOFError, e:
+        print "Failed to open '+filepath+' due to EOFError with string "+str(e)
+
+        return exponential_backoff()
+    except ValueError, e:
+        print 'Failed to open '+filepath+' due to ValueError with string '+str(e)
+
+        return exponential_backoff()
     except Exception, e:
         #assert False
         exc_str = str(e)
@@ -47,6 +58,7 @@ def load(filepath, recurse_depth = 0):
 
 
 def save(filepath, obj):
+    filepath = preprocess(filepath)
     try:
         _save(filepath, obj)
     except RuntimeError, e:
