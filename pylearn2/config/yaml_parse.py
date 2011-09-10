@@ -2,10 +2,10 @@
 import yaml
 from pylearn2.utils.call_check import checked_call
 from pylearn2.utils import serial
+from pylearn2.utils.string import preprocess
 
 
 is_initialized = False
-
 
 def load(stream, overrides=None, **kwargs):
     """
@@ -34,7 +34,15 @@ def load(stream, overrides=None, **kwargs):
     global is_initialized
     if not is_initialized:
         initialize()
-    proxy_graph = yaml.load(stream, **kwargs)
+
+    if isinstance(stream,str):
+        string = stream
+    else:
+        string = '\n'.join(stream.readlines())
+
+    processed_string = preprocess(string)
+
+    proxy_graph = yaml.load(processed_string, **kwargs)
 
     #import pdb; pdb.set_trace()
     if overrides is not None:
