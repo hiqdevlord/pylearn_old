@@ -1,4 +1,4 @@
-"""A Multivariate Normal Distribution."""
+"""TODO: document me."""
 from scipy.linalg import cholesky, det, solve
 import numpy as N
 import theano.tensor as T
@@ -7,14 +7,9 @@ from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
 
 class MND(object):
-    """A Multivariate Normal Distribution"""
+    """TODO: document me."""
     def __init__(self, sigma, mu, seed=42):
-        """
-        Parameters
-        -----------
-        sigma: a numpy ndarray of shape (n,n)
-        mu: a numpy ndarray of shape (n,)
-        seed: the seed for the theano random number generator used to sample from this distribution"""
+        """TODO: document me."""
         self.sigma = sigma
         self.mu = mu
         if not (len(mu.shape) == 1):

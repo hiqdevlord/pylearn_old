@@ -16,7 +16,7 @@ class MNIST(dense_design_matrix.DenseDesignMatrix):
         X = N.cast['float32'](Xs[which_set])
 
         if center:
-            X -= X.mean(axis=0)
+            assert False
 
         view_converter = dense_design_matrix.DefaultViewConverter((28,28,1))
 
