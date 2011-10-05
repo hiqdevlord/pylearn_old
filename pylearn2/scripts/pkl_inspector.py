@@ -1,9 +1,9 @@
 #!/bin/env python
 import sys
-from pylearn2.utils import serial
+from util import serial
 import cPickle
 import time
-from theano.printing import min_informative_str
+from theano.misc.naming import min_informative_str
 
 """
 Determines the contribution of different subcomponents of a file to its file size, serialization time,
