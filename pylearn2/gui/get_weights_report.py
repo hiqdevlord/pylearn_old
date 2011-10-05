@@ -39,47 +39,56 @@ def get_weights_report(model_path, rescale = 'individual'):
     dataset = yaml_parse.load(p.dataset_yaml_src)
 
     if hasattr(p,'get_weights'):
-        W = p.get_weights()
+        p.weights = p.get_weights()
 
     if 'weightsShared' in dir(p):
-        W = p.weightsShared.get_value()
+        p.weights = p.weightsShared.get_value()
 
     if 'W' in dir(p):
         if hasattr(p.W,'__array__'):
             warnings.warn('model.W is an ndarray; I can figure out how to display this but that seems like a sign of a bad bug')
-            W = p.W
+            p.weights = p.W
+            from theano import shared
+            p.W = shared(p.W)
         else:
-            W = p.W.get_value()
+            p.weights = p.W.get_value()
 
-    has_D = False
     if 'D' in dir(p):
-        has_D = True
-        D = p.D
+        p.decWeightsShared = p.D
 
     if 'enc_weights_shared' in dir(p):
-        W = p.enc_weights_shared.get_value()
+        p.weights = p.enc_weights_shared.get_value()
 
 
-    if len(W.shape) == 2:
+    if 'W' in dir(p) and len(p.W.get_value().shape) == 3:
+        W = p.W.get_value()
+        nh , nv, ns = W.shape
+        pv = patch_viewer.PatchViewer(grid_shape=(nh,ns), patch_shape= dataset.view_shape()[0:2])
+
+        if global_rescale:
+            W /= np.abs(W).max()
+
+        for i in range(0,nh):
+            for k in range(0,ns):
+                patch = W[i,:,k]
+                patch = dataset.vec_to_view(patch, weights = True)
+                pv.add_patch( patch, rescale = patch_rescale)
+            #
+        #
+    elif len(p.weights.shape) == 2:
         if hasattr(p,'get_weights_format'):
-            weights_format = p.get_weights_format()
-        if hasattr(p, 'weights_format'):
-            weights_format = p.weights_format
+            p.weights_format = p.get_weights_format
 
-        assert hasattr(weights_format,'__iter__')
-        assert len(weights_format) == 2
-        assert weights_format[0] in ['v','h']
-        assert weights_format[1] in ['v','h']
-        assert weights_format[0] != weights_format[1]
+        assert type(p.weights_format()) == type([])
+        assert len(p.weights_format()) == 2
+        assert p.weights_format()[0] in ['v','h']
+        assert p.weights_format()[1] in ['v','h']
+        assert p.weights_format()[0] != p.weights_format()[1]
 
-        if weights_format[0] == 'v':
-            W = W.T
-        h = W.shape[0]
+        if p.weights_format()[0] == 'v':
+            p.weights = p.weights.transpose()
+        h = p.weights.shape[0]
 
-
-        norms = np.sqrt(1e-8+np.square(W).sum(axis=1))
-
-        norm_prop = norms / norms.max()
 
         hr = int(np.ceil(np.sqrt(h)))
         hc = hr
@@ -88,21 +97,19 @@ def get_weights_report(model_path, rescale = 'individual'):
 
         pv = patch_viewer.PatchViewer(grid_shape=(hr,hc), patch_shape=dataset.view_shape()[0:2],
                 is_color = dataset.view_shape()[2] == 3)
+        weights_mat = p.weights
 
-        weights_view = dataset.get_weights_view(W)
+        assert weights_mat.shape[0] == h
+        weights_view = dataset.get_weights_view(weights_mat)
         assert weights_view.shape[0] == h
         #print 'weights_view shape '+str(weights_view.shape)
 
         if global_rescale:
             weights_view /= np.abs(weights_view).max()
 
-
-        print 'sorting weights by decreasing norm'
-        idx = sorted( range(h), key = lambda l : - norm_prop[l] )
-
         for i in range(0,h):
-            patch = weights_view[idx[i],...]
-            pv.add_patch( patch, rescale   = patch_rescale)#, activation = norm_prop[idx[i]])
+            patch = weights_view[i,...]
+            pv.add_patch( patch, rescale   = patch_rescale)
     else:
         e = p.weights
         d = p.dec_weights_shared.value
@@ -125,12 +132,12 @@ def get_weights_report(model_path, rescale = 'individual'):
             if show_dec:
                 pv.addVid( d[i,:,:,:,0], rescale = rescale)
 
-    print 'smallest enc weight magnitude: '+str(np.abs(W).min())
-    print 'mean enc weight magnitude: '+str(np.abs(W).mean())
-    print 'max enc weight magnitude: '+str(np.abs(W).max())
+    print 'smallest enc weight magnitude: '+str(np.abs(p.weights).min())
+    print 'mean enc weight magnitude: '+str(np.abs(p.weights).mean())
+    print 'max enc weight magnitude: '+str(np.abs(p.weights).max())
 
 
-    norms = np.sqrt(np.square(W).sum(axis=1))
+    norms = np.sqrt(np.square(p.weights).sum(axis=1))
     assert norms.shape == (h,)
     print 'min norm: ',norms.min()
     print 'mean norm: ',norms.mean()
