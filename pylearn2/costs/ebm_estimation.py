@@ -1,6 +1,7 @@
 """ Training costs for unsupervised learning of energy-based models """
 import theano.tensor as T
 from theano import scan
+from theano.printing import Print
 
 
 class NCE:
