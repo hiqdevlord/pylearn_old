@@ -1,4 +1,5 @@
 """TODO: module-level docstring."""
+import time
 from theano import function, shared
 import theano.tensor as T
 import copy
@@ -67,10 +68,6 @@ class Monitor(object):
             self.redo_theano()
 
         model = self.model
-
-        #W = model.W.get_value()
-        #print 'monitoring weights ',':',(W.min(),W.mean(),W.max(),W.shape)
-
         d = self.dataset
 
         if d:
@@ -86,9 +83,7 @@ class Monitor(object):
 
             for i in xrange(self.batches):
                 X = d.get_batch_design(self.batch_size)
-                #print 'monitoring batch ',i,':',(X.min(),X.mean(),X.max(),X.shape)
                 self.accum(X)
-
 
             # TODO: use logging infrastructure so that user can configure
             # formatting
@@ -108,8 +103,6 @@ class Monitor(object):
 
             d.set_stream_position(s)
 
-
-
     def redo_theano(self):
         """
         Recompiles Theano functions used by this monitor.
@@ -126,14 +119,24 @@ class Monitor(object):
         updates = {}
         for channel in self.channels.values():
             updates[channel.val_shared] = 0.0
+        print "compiling begin_record_entry..."
+        t1 = time.time()
         self.begin_record_entry = function(inputs=[], updates=updates)
+        t2 = time.time()
+        print "took "+str(t2-t1)+" seconds"
         updates = {}
         givens = {}
         X = T.matrix()
+        print 'monitored channels: '+str(self.channels.keys())
         for channel in self.channels.values():
             givens[channel.ipt] = X
             updates[channel.val_shared] = channel.val_shared + channel.val
+        print "compiling accum..."
+        t1 = time.time()
         self.accum = function([X], givens=givens, updates=updates)
+        t2 = time.time()
+        print "graph size: ",len(self.accum.maker.env.toposort())
+        print "took "+str(t2-t1)+" seconds"
         final_names = dir(self)
         self.register_names_to_del([name for name in final_names
                                     if name not in init_names])

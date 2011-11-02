@@ -106,6 +106,7 @@ class Sampler(object):
 
 class PersistentCDSampler(Sampler):
     """
+
     Implements a persistent Markov chain for use with Persistent Contrastive
     Divergence, a.k.a. stochastic maximum likelhiood, as described in [1].
 
@@ -185,7 +186,7 @@ class RBM(Block, Model):
     A base interface for RBMs, implementing the binary-binary case.
 
     """
-    def __init__(self, nvis, nhid, irange=0.5, rng=None, init_bias_hid=0.0):
+    def __init__(self, nvis, nhid, irange=0.5, rng=None, init_bias_vis = 0.0, init_bias_hid=0.0):
         """
         Construct an RBM object.
 
@@ -200,6 +201,8 @@ class RBM(Block, Model):
         rng : RandomState object or seed
             NumPy RandomState object to use when initializing parameters
             of the model, or (integer) seed to use to create one.
+        init_bias_vis: initial value of the visible biases.
+        init_bias_hid: initial value of the hidden biases
         """
 
         Model.__init__(self)
@@ -207,12 +210,12 @@ class RBM(Block, Model):
         if rng is None:
             # TODO: global rng configuration stuff.
             rng = numpy.random.RandomState(1001)
-        self.visbias = sharedX(
-            numpy.zeros(nvis),
-            name='vb',
+        self.bias_vis = sharedX(
+            numpy.zeros(nvis) + init_bias_vis,
+            name='bias_vis',
             borrow=True
         )
-        self.hidbias = sharedX(
+        self.bias_hid = sharedX(
             numpy.zeros(nhid) + init_bias_hid,
             name='hb',
             borrow=True
@@ -223,7 +226,7 @@ class RBM(Block, Model):
             borrow=True
         )
         self.__dict__.update(nhid=nhid, nvis=nvis)
-        self._params = [self.visbias, self.hidbias, self.weights]
+        self._params = [self.bias_vis, self.bias_hid, self.weights]
 
     def get_input_dim(self):
         return self.nvis
@@ -362,7 +365,7 @@ class RBM(Block, Model):
             hidden unit for each training example.
         """
         if isinstance(v, tensor.Variable):
-            return self.hidbias + tensor.dot(v, self.weights)
+            return self.bias_hid + tensor.dot(v, self.weights)
         else:
             return [self.input_to_h_from_v(vis) for vis in v]
 
@@ -385,7 +388,7 @@ class RBM(Block, Model):
             visible unit for each row of h.
         """
         if isinstance(h, tensor.Variable):
-            return self.visbias + tensor.dot(h, self.weights.T)
+            return self.bias_vis + tensor.dot(h, self.weights.T)
         else:
             return [self.input_to_v_from_h(hid) for hid in h]
 
@@ -434,7 +437,7 @@ class RBM(Block, Model):
             hidden units.
         """
         if isinstance(h, tensor.Variable):
-            return nnet.sigmoid(self.visbias + tensor.dot(h, self.weights.T))
+            return nnet.sigmoid(self.bias_vis + tensor.dot(h, self.weights.T))
         else:
             return [self.mean_v_given_h(hid) for hid in h]
 
@@ -457,7 +460,7 @@ class RBM(Block, Model):
             associated with each row of v.
         """
         sigmoid_arg = self.input_to_h_from_v(v)
-        return (-tensor.dot(v, self.visbias) -
+        return (-tensor.dot(v, self.bias_vis) -
                  nnet.softplus(sigmoid_arg).sum(axis=1))
 
     def free_energy_given_h(self, h):
@@ -479,7 +482,7 @@ class RBM(Block, Model):
             associated with each row of v.
         """
         sigmoid_arg = self.input_to_v_from_h(h)
-        return (-tensor.dot(h, self.hidbias) -
+        return (-tensor.dot(h, self.bias_hid) -
                 nnet.softplus(sigmoid_arg).sum(axis=1))
 
     def __call__(self, v):
@@ -525,12 +528,6 @@ class RBM(Block, Model):
 class GaussianBinaryRBM(RBM):
     """
     An RBM with Gaussian visible units and binary hidden units.
-
-    TODO: there are a few different GRBM energy functions in the
-    literature and I think this is a new one... we might want to
-    factor the energy function to be separate from the logic for how
-    to do CD and let people pick which energy function implementation
-    they want to use.
     """
     def __init__(self, nvis, nhid, energy_function_class, irange=0.5, rng=None,
                  mean_vis=False, init_sigma=2., learn_sigma=False,
@@ -588,8 +585,8 @@ class GaussianBinaryRBM(RBM):
         self.energy_function = energy_function_class(
                     W=self.weights,
                     sigma=self.sigma,
-                    bias_vis=self.visbias,
-                    bias_hid=self.hidbias
+                    bias_vis=self.bias_vis,
+                    bias_hid=self.bias_hid
                 )
 
     def censor_updates(self, updates):
@@ -603,38 +600,6 @@ class GaussianBinaryRBM(RBM):
 
     def score(self, V):
         return self.energy_function.score(V)
-
-    """
-    method made obsolete by switching to energy function objects
-
-    def input_to_h_from_v(self, v):
-        ""
-        Compute the affine function (linear map plus bias) that serves as
-        input to the hidden layer in an RBM.
-
-        Parameters
-        ----------
-        v  : tensor_like or list of tensor_likes
-            Theano symbolic (or list thereof) representing one or several
-            minibatches on the visible units, with the first dimension indexing
-            training examples and the second indexing data dimensions.
-
-        Returns
-        -------
-        a : tensor_like or list of tensor_likes
-            Theano symbolic (or list thereof) representing the input to each
-            hidden unit for each training example.
-
-        Notes
-        -----
-        In the Gaussian-binary case, each data dimension is scaled by a sigma
-        parameter (which defaults to 1 in this implementation, but is
-        nonetheless present as a shared variable in the model parameters).
-        ""
-        if isinstance(v, tensor.Variable):
-            return self.hidbias + tensor.dot(v / self.sigma, self.weights)
-        else:
-            return [self.input_to_h_from_v(vis) for vis in v]"""
 
     def P_H_given_V(self, V):
         return self.energy_function.P_H_given(V)
@@ -659,7 +624,7 @@ class GaussianBinaryRBM(RBM):
         """
 
         return self.energy_function.mean_v_given_h(h)
-        #return self.visbias + self.sigma * tensor.dot(h, self.weights.T)
+        #return self.bias_vis + self.sigma * tensor.dot(h, self.weights.T)
 
     def free_energy_given_v(self, V):
         """
@@ -682,7 +647,7 @@ class GaussianBinaryRBM(RBM):
         """
 
         """hid_inp = self.input_to_h_from_v(v)
-        squared_term = ((self.visbias - v) ** 2.) / (2. * self.sigma)
+        squared_term = ((self.bias_vis - v) ** 2.) / (2. * self.sigma)
         rval =  squared_term.sum(axis=1) - nnet.softplus(hid_inp).sum(axis=1)
         assert len(rval.type.broadcastable) == 1"""
 
