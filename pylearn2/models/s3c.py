@@ -13,7 +13,6 @@ import numpy as np
 import warnings
 from theano.gof.op import get_debug_values, debug_error_message
 from pylearn2.utils import make_name, sharedX, as_floatX
-from pylearn2.expr.information_theory import entropy_binary_vector
 
 warnings.warn('s3c changing the recursion limit')
 import sys
@@ -261,7 +260,6 @@ class S3C(Model):
 
         self.debug_m_step = debug_m_step
 
-        self.monitoring_channel_prefix = ''
 
         if init_unit_W is not None and not init_unit_W:
             assert not constrain_W_norm
@@ -367,6 +365,10 @@ class S3C(Model):
             warnings.warn('M step debugging activated-- this is only valid for certain settings, and causes a performance slowdown.')
             self.em_functional_diff = sharedX(0.)
 
+        self.censored_updates = {}
+        self.register_names_to_del(['censored_updates'])
+        for param in self.get_params():
+            self.censored_updates[param] = set([])
 
         if self.monitor_norms:
             self.debug_norms = sharedX(np.zeros(self.nhid))
@@ -385,17 +387,11 @@ class S3C(Model):
 
         return em_functional
 
-    def set_monitoring_channel_prefix(self, prefix):
-        self.monitoring_channel_prefix = prefix
-
     def get_monitoring_channels(self, V):
             try:
                 self.compile_mode()
 
-                if self.m_step != None:
-                    rval = self.m_step.get_monitoring_channels(V, self)
-                else:
-                    rval = {}
+                rval = self.m_step.get_monitoring_channels(V, self)
 
                 from_e_step = self.e_step.get_monitoring_channels(V)
 
@@ -468,13 +464,6 @@ class S3C(Model):
                     rval['post_solve_norms_min'] = T.min(self.debug_norms)
                     rval['post_solve_norms_max'] = T.max(self.debug_norms)
                     rval['post_solve_norms_mean'] = T.mean(self.debug_norms)
-
-                new_rval = {}
-
-                for key in rval:
-                    new_rval[self.monitoring_channel_prefix+key] = rval[key]
-
-                rval = new_rval
 
                 return rval
             finally:
@@ -593,7 +582,23 @@ class S3C(Model):
 
     def entropy_h(self, H_hat):
 
-        return entropy_binary_vector(H_hat)
+        #TODO: replace with actually evaluating 0 log 0 as 0
+        #note: can't do 1e-8, 1.-1e-8 rounds to 1.0 in float32
+        H_hat = T.clip(H_hat, 1e-7, 1.-1e-7)
+
+        logH = T.log(H_hat)
+
+        logOneMinusH = T.log(1.-H_hat)
+
+        term1 = - T.sum( H_hat * logH , axis=1)
+        assert len(term1.type.broadcastable) == 1
+
+        term2 = - T.sum( (1.-H_hat) * logOneMinusH , axis =1 )
+        assert len(term2.type.broadcastable) == 1
+
+        rval = term1 + term2
+
+        return rval
 
     def entropy_hs(self, H_hat, var_s0_hat, var_s1_hat):
 
@@ -691,8 +696,6 @@ class S3C(Model):
 
     def censor_updates(self, updates):
 
-        assert self.bias_hid in self.censored_updates
-
         def should_censor(param):
             return param in updates and updates[param] not in self.censored_updates[param]
 
@@ -739,13 +742,9 @@ class S3C(Model):
         if H_sample is None:
             H_sample = theano_rng.binomial( size = hid_shape, n = 1, p = self.p)
 
-        assert len(H_sample.type.broadcastable) == 2
-
         pos_s_sample = theano_rng.normal( size = hid_shape, avg = self.mu, std = T.sqrt(1./self.alpha) )
 
         final_hs_sample = H_sample * pos_s_sample
-
-        assert len(final_hs_sample.type.broadcastable) == 2
 
         V_mean = T.dot(final_hs_sample, self.W.T)
 
@@ -962,17 +961,7 @@ class S3C(Model):
 
         self.p = T.nnet.sigmoid(self.bias_hid)
 
-    def reset_censorship_cache(self):
-
-        self.censored_updates = {}
-        self.register_names_to_del(['censored_updates'])
-        for param in self.get_params():
-            self.censored_updates[param] = set([])
-
     def redo_theano(self):
-
-        self.reset_censorship_cache()
-
         if not self.autonomous:
             return
 
@@ -1000,7 +989,12 @@ class S3C(Model):
         self.learn_mini_batch(dataset.get_batch_design(batch_size))
     #
 
-    def print_status(self):
+
+    def learn_mini_batch(self, X):
+
+        self.learn_func(X)
+
+        if self.monitor.examples_seen % self.print_interval == 0:
             print ""
             b = self.bias_hid.get_value(borrow=True)
             assert not np.any(np.isnan(b))
@@ -1020,13 +1014,6 @@ class S3C(Model):
             print 'W: ',(W.min(),W.mean(),W.max())
             norms = numpy_norms(W)
             print 'W norms:',(norms.min(),norms.mean(),norms.max())
-
-    def learn_mini_batch(self, X):
-
-        self.learn_func(X)
-
-        if self.monitor.examples_seen % self.print_interval == 0:
-            self.print_status()
 
         if self.debug_m_step:
             if self.em_functional_diff.get_value() < 0.0:
@@ -1229,7 +1216,6 @@ class E_Step:
         else:
             #just use the prior
             value = self.model.mu
-            assert self.model.mu.get_value(borrow=True).shape[0] == self.model.nhid
             rval = T.alloc(value, V.shape[0], value.shape[0])
 
         return rval
@@ -1241,9 +1227,7 @@ class E_Step:
                 raise Exception('Well this is awkward. We require visible input test tags to be of shape '+str((self.model.test_batch_size,self.model.nvis))+' but the monitor gave us something of shape '+str(Vv.shape)+". The batch index part is probably only important if recycle_q is enabled. It's also probably not all that realistic to plan on telling the monitor what size of batch we need for test tags. the best thing to do is probably change self.model.test_batch_size to match what the monitor does")
 
             assert Vv.shape[0] == Hv.shape[0]
-            if not (Hv.shape[1] == self.model.nhid):
-                raise AssertionError("Hv.shape[1] is %d, does not match self.model.nhid, %d" \
-                        % ( Hv.shape[1], self.model.nhid) )
+            assert Hv.shape[1] == self.model.nhid
 
 
         mu = self.model.mu
