@@ -13,121 +13,14 @@ import numpy as np
 import warnings
 from theano.gof.op import get_debug_values, debug_error_message
 from pylearn2.utils import make_name, sharedX, as_floatX
+from pylearn2.expr.information_theory import entropy_binary_vector
+from theano.tensor.shared_randomstreams import RandomStreams
 
 warnings.warn('s3c changing the recursion limit')
 import sys
 sys.setrecursionlimit(50000)
 
-class SufficientStatistics:
-    """ The SufficientStatistics class computes several sufficient
-        statistics of a minibatch of examples / variational parameters.
-        This is mostly for convenience since several expressions are
-        easy to express in terms of these same sufficient statistics.
-        Also, re-using the same expression for the sufficient statistics
-        in multiple code locations can reduce theano compilation time.
-        The current version of the S3C code no longer supports features
-        like decaying sufficient statistics since these were not found
-        to be particularly beneficial relative to the burden of computing
-        the O(nhid^2) second moment matrix. The current version of the code
-        merely computes the sufficient statistics apart from the second
-        moment matrix as a notational convenience. Expressions that most
-        naturally are expressed in terms of the second moment matrix
-        are now written with a different order of operations that
-        avoids O(nhid^2) operations but whose dependence on the dataset
-        cannot be expressed in terms only of sufficient statistics."""
-
-
-    def __init__(self, d):
-        self. d = {}
-        for key in d:
-            self.d[key] = d[key]
-
-    @classmethod
-    def from_observations(self, needed_stats, V, H_hat, S_hat, var_s0_hat, var_s1_hat):
-        """
-            returns a SufficientStatistics
-
-            needed_stats: a set of string names of the statistics to include
-
-            V: a num_examples x nvis matrix of input examples
-            H_hat: a num_examples x nhid matrix of \hat{h} variational parameters
-            S_hat: variational parameters for expectation of s given h=1
-            var_s0_hat: variational parameters for variance of s given h=0
-                        (only a vector of length nhid, since this is the same for
-                        all inputs)
-            var_s1_hat: variational parameters for variance of s given h=1
-                        (again, a vector of length nhid)
-        """
-
-        m = T.cast(V.shape[0],config.floatX)
-
-        H_name = make_name(H_hat, 'anon_H_hat')
-        Mu1_name = make_name(S_hat, 'anon_S_hat')
-
-        #mean_h
-        assert H_hat.dtype == config.floatX
-        mean_h = T.mean(H_hat, axis=0)
-        assert H_hat.dtype == mean_h.dtype
-        assert mean_h.dtype == config.floatX
-        mean_h.name = 'mean_h('+H_name+')'
-
-        #mean_v
-        mean_v = T.mean(V,axis=0)
-
-        #mean_sq_v
-        mean_sq_v = T.mean(T.sqr(V),axis=0)
-
-        #mean_s1
-        mean_s1 = T.mean(S_hat,axis=0)
-
-        #mean_sq_s
-        mean_sq_S = H_hat * (var_s1_hat + T.sqr(S_hat)) + (1. - H_hat)*(var_s0_hat)
-        mean_sq_s = T.mean(mean_sq_S,axis=0)
-
-        #mean_hs
-        mean_HS = H_hat * S_hat
-        mean_hs = T.mean(mean_HS,axis=0)
-        mean_hs.name = 'mean_hs(%s,%s)' % (H_name, Mu1_name)
-        mean_s = mean_hs #this here refers to the expectation of the s variable, not s_hat
-        mean_D_sq_mean_Q_hs = T.mean(T.sqr(mean_HS), axis=0)
-
-        #mean_sq_hs
-        mean_sq_HS = H_hat * (var_s1_hat + T.sqr(S_hat))
-        mean_sq_hs = T.mean(mean_sq_HS, axis=0)
-        mean_sq_hs.name = 'mean_sq_hs(%s,%s)' % (H_name, Mu1_name)
-
-        #mean_sq_mean_hs
-        mean_sq_mean_hs = T.mean(T.sqr(mean_HS), axis=0)
-        mean_sq_mean_hs.name = 'mean_sq_mean_hs(%s,%s)' % (H_name, Mu1_name)
-
-        #mean_hsv
-        sum_hsv = T.dot(mean_HS.T,V)
-        sum_hsv.name = 'sum_hsv<from_observations>'
-        mean_hsv = sum_hsv / m
-
-
-        d = {
-                    "mean_h"                :   mean_h,
-                    "mean_v"                :   mean_v,
-                    "mean_sq_v"             :   mean_sq_v,
-                    "mean_s"                :   mean_s,
-                    "mean_s1"               :   mean_s1,
-                    "mean_sq_s"             :   mean_sq_s,
-                    "mean_hs"               :   mean_hs,
-                    "mean_sq_hs"            :   mean_sq_hs,
-                    "mean_sq_mean_hs"       :   mean_sq_mean_hs,
-                    "mean_hsv"              :   mean_hsv,
-                }
-
-
-        final_d = {}
-
-        for stat in needed_stats:
-            final_d[stat] = d[stat]
-            final_d[stat].name = 'observed_'+stat
-
-        return SufficientStatistics(final_d)
-
+from pylearn2.models.s3c import numpy_norms
 
 warnings.warn("""
 TODO/NOTES
@@ -141,6 +34,7 @@ layer, then sampling downward from there
 class DBM(Model):
 
     def __init__(self, rbms,
+                        negative_chains,
                        inference_procedure = None,
                        print_interval = 10000):
         """
@@ -153,6 +47,7 @@ class DBM(Model):
                     the DBM parameters will be constructed by taking the visible biases
                     and weights from each RBM. only the topmost RBM will additionally
                     donate its hidden biases.
+            negative_chains: the number of negative chains to simulate
             inference_procedure: a pylearn2.models.dbm.InferenceProcedure object
                 (if None, assumes the model is not meant to run on its own)
             print_interval: every print_interval examples, print out a status summary
@@ -166,9 +61,12 @@ class DBM(Model):
 
         super(DBM,self).__init__()
 
-        self.rbms = rbms
+        self.autonomous = False
 
-        self.autonomous = True
+        self.rbms = rbms
+        self.negative_chains = negative_chains
+
+        self.monitoring_channel_prefix = ""
 
         if inference_procedure is None:
             self.autonomous = False
@@ -188,14 +86,54 @@ class DBM(Model):
         self.bias_hid = [ rbm.bias_vis for rbm in self.rbms[1:] ]
         self.bias_hid.append(self.rbms[-1].bias_hid)
 
+        self.reset_rng()
 
         self.redo_everything()
 
 
-    def redo_everything(self):
+    def reset_rng(self):
+        self.rng = np.random.RandomState([1,2,3])
 
+    def redo_everything(self):
+        """ compiles learn_func if necessary
+            makes new negative chains
+            does not reset weights or biases
+        """
+
+        #compile learn_func if necessary
         if self.autonomous:
             self.redo_theano()
+
+        #make the negative chains
+        self.V_chains = self.make_chains(self.bias_vis)
+
+        self.H_chains = [ self.make_chains(bias_hid) for bias_hid in self.bias_hid ]
+
+
+    def make_chains(self, bias):
+        """ make the shared variable representing a layer of
+            the network for all negative chains
+
+            for now units are initialized randomly based on their
+            biases only
+            """
+
+        b = bias.get_value(borrow=True)
+
+        nhid ,= b.shape
+
+        shape = (self.negative_chains, nhid)
+
+        driver = self.rng.uniform(0.0, 1.0, shape)
+
+        thresh = 1./(1.+np.exp(-b))
+
+        value = driver < thresh
+
+        return sharedX(value)
+
+    def set_monitoring_channel_prefix(self, prefix):
+        self.monitoring_channel_prefix = prefix
 
     def get_monitoring_channels(self, V):
         warnings.warn("DBM doesn't actually return any monitoring channels yet. It has a bunch of S3C code sitting in its get_monitoring_channels but for now it just returns an empty dictionary")
@@ -249,11 +187,98 @@ class DBM(Model):
         """ If any shared variables need to have batch-size dependent sizes, sets them all to their runtime sizes """
         pass
 
-    def get_params(self):
-        rval = set([])
 
-        for rbm in self.rbms:
-            rval = rval.union(set(rbm.get_params))
+    def print_status(self):
+        print ""
+        bv = self.bias_vis.get_value(borrow=True)
+        print "bias_vis: ",(bv.min(),bv.mean(),bv.max())
+        for i in xrange(len(self.W)):
+            W = self.W[i].get_value(borrow=True)
+            print "W[%d]"%i,(W.min(),W.mean(),W.max())
+            norms = numpy_norms(W)
+            print " norms: ",(norms.min(),norms.mean(),norms.max())
+            bh = self.bias_hid[i].get_value(borrow=True)
+            print "bias_hid[%d]"%i,(bh.min(),bh.mean(),bh.max())
+
+
+    def get_sampling_updates(self):
+
+        ip = self.inference_procedure
+
+        rval = {}
+
+        theano_rng = RandomStreams(17)
+
+        def sample_from(P):
+            return theano_rng.binomial(size = P.shape, n = 1, p = P, dtype = P.dtype)
+
+        #sample the visible units
+        V_prob = ip.infer_H_hat_one_sided(other_H_hat = self.H_chains[0],
+                W = self.W[0].T, b = self.bias_vis)
+
+        V_sample = sample_from(V_prob)
+
+        rval[self.V_chains] = V_sample
+
+        #sample the first hidden layer unless this is also the last hidden layer)
+        if len(self.H_chains) > 1:
+            prob = ip.infer_H_hat_two_sided(H_hat_below = rval[self.V_chains], H_hat_above = self.H_chains[1], W_below = self.W[0], W_above = self.W[1], b = self.bias_hid[0])
+
+            sample = sample_from(prob)
+
+            rval[self.H_chains[0]] = sample
+
+        #sample the intermediate hidden layers
+        for i in xrange(1,len(self.H_chains)-1):
+            prob = ip.infer_H_hat_two_sided(H_hat_below = rval[self.H_chains[i-1]], H_hat_above = self.H_chains[i+1],
+                                            W_below = self.W[i], W_above = self.W[i+1], b = self.bias_hid[i])
+            sample = sample_from(prob)
+
+            rval[self.H_chains[i-1]] = sample
+
+        #sample the last hidden layer
+        if len(self.H_chains) > 1:
+            ipt = rval[self.H_chains[-2]]
+        else:
+            ipt = self.V_chains
+
+        prob = ip.infer_H_hat_one_sided(other_H_hat = ipt, W = self.W[-1], b = self.bias_hid[-1])
+
+        sample = sample_from(prob)
+
+        rval[self.H_chains[-1]] = sample
+
+
+        return rval
+
+    def get_neg_phase_grads(self):
+        """ returns a dictionary mapping from parameters to negative phase gradients
+            (assuming you're doing gradient ascent on variational free energy)
+        """
+
+        obj = self.expected_energy(V_hat = self.V_chains, H_hat = self.H_chains)
+
+        constants = list(set(self.H_chains).union([self.V_chains]))
+
+        params = self.get_params()
+
+        grads = T.grad(obj, params, consider_constant = constants)
+
+        rval = {}
+
+        for param, grad in zip(params, grads):
+            rval[param] = grad
+
+        return rval
+
+
+    def get_params(self):
+        rval = set([self.bias_vis])
+
+        assert len(self.W) == len(self.bias_hid)
+
+        for i in xrange(len(self.W)):
+            rval = rval.union(set([ self.W[i], self.bias_hid[i]]))
 
         rval = list(rval)
 
@@ -299,6 +324,61 @@ class DBM(Model):
         raise NotImplementedError()
 
         return V_sample
+
+    def expected_energy(self, V_hat, H_hat):
+        """ expected energy of the model under the mean field distribution
+            defined by V_hat and H_hat
+            alternately, could be expectation of the energy function across
+            a batch of examples, where every element of V_hat and H_hat is
+            a binary observation
+        """
+
+        m = V_hat.shape[0]
+
+        assert len(H_hat) == len(self.rbms)
+
+        v = T.mean(V_hat, axis=0)
+
+        v_bias_contrib = T.dot(v, self.bias_vis)
+
+        exp_vh = T.dot(V_hat.T,H_hat[0]) / m
+
+        v_weights_contrib = T.sum(self.W[0] * exp_vh) / m
+
+        total = v_bias_contrib + v_weights_contrib
+
+        for i in xrange(len(H_hat) - 1):
+            lower_H = H_hat[i]
+            low = T.mean(lower_H, axis = 0)
+            higher_H = H_hat[i+1]
+            exp_lh = T.dot(lower_H.T, higher_H) / m
+            lower_bias = self.bias_hid[i]
+            W = self.W[i+1]
+
+            lower_bias_contrib = T.dot(low, lower_bias)
+
+            weights_contrib = T.sum( W * exp_lh) / m
+
+            total = total + lower_bias_contrib + weights_contrib
+
+        highest_bias_contrib = T.dot(T.mean(H_hat[-1],axis=0), self.bias_hid[-1])
+
+        total = total + highest_bias_contrib
+
+        assert len(total.type.broadcastable) == 0
+
+        return total
+
+    def entropy_h(self, H_hat):
+        """ entropy of the hidden layers under the mean field distribution
+        defined by H_hat """
+
+        total = entropy_binary_vector(H_hat[0])
+
+        for H in H_hat[1:]:
+            total += entropy_binary_vector(H)
+
+        return total
 
     def redo_theano(self):
         try:
