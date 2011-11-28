@@ -37,7 +37,7 @@ def load(stream, overrides=None, **kwargs):
     if not is_initialized:
         initialize()
 
-    if isinstance(stream, basestring):
+    if isinstance(stream, str):
         string = stream
     else:
         string = '\n'.join(stream.readlines())

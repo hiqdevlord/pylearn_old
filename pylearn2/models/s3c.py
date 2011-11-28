@@ -14,6 +14,7 @@ import warnings
 from theano.gof.op import get_debug_values, debug_error_message
 from pylearn2.utils import make_name, sharedX, as_floatX
 from pylearn2.expr.information_theory import entropy_binary_vector
+from theano.printing import Print
 
 warnings.warn('s3c changing the recursion limit')
 import sys
@@ -739,7 +740,10 @@ class S3C(Model):
         if H_sample is None:
             H_sample = theano_rng.binomial( size = hid_shape, n = 1, p = self.p)
 
-        assert len(H_sample.type.broadcastable) == 2
+        if hasattr(H_sample,'__array__'):
+            assert len(H_sample.shape) == 2
+        else:
+            assert len(H_sample.type.broadcastable) == 2
 
         pos_s_sample = theano_rng.normal( size = hid_shape, avg = self.mu, std = T.sqrt(1./self.alpha) )
 
@@ -759,8 +763,8 @@ class S3C(Model):
 
     @classmethod
     def expected_log_prob_vhs_needed_stats(cls):
-        h = S3C.log_likelihood_h_needed_stats()
-        s = S3C.log_likelihood_s_given_h_needed_stats()
+        h = S3C.expected_log_prob_h_needed_stats()
+        s = S3C.expected_log_prob_s_given_h_needed_stats()
         v = S3C.expected_log_prob_v_given_hs_needed_stats()
 
         union = h.union(s).union(v)
@@ -771,10 +775,10 @@ class S3C(Model):
     def expected_log_prob_vhs(self, stats, H_hat, S_hat):
 
         expected_log_prob_v_given_hs = self.expected_log_prob_v_given_hs(stats, H_hat = H_hat, S_hat = S_hat)
-        log_likelihood_s_given_h  = self.log_likelihood_s_given_h(stats)
-        log_likelihood_h          = self.log_likelihood_h(stats)
+        expected_log_prob_s_given_h  = self.expected_log_prob_s_given_h(stats)
+        expected_log_prob_h          = self.expected_log_prob_h(stats)
 
-        rval = expected_log_prob_v_given_hs + log_likelihood_s_given_h + log_likelihood_h
+        rval = expected_log_prob_v_given_hs + expected_log_prob_s_given_h + expected_log_prob_h
 
         assert len(rval.type.broadcastable) == 0
 
@@ -887,10 +891,10 @@ class S3C(Model):
         return rval
 
     @classmethod
-    def log_likelihood_s_given_h_needed_stats(cls):
+    def expected_log_prob_s_given_h_needed_stats(cls):
         return set(['mean_h','mean_hs','mean_sq_s'])
 
-    def log_likelihood_s_given_h(self, stats):
+    def expected_log_prob_s_given_h(self, stats):
 
         """
         E_h,s\sim Q log P(s|h)
@@ -923,10 +927,10 @@ class S3C(Model):
         return rval
 
     @classmethod
-    def log_likelihood_h_needed_stats(cls):
+    def expected_log_prob_h_needed_stats(cls):
         return set(['mean_h'])
 
-    def log_likelihood_h(self, stats):
+    def expected_log_prob_h(self, stats):
         """ Returns the expected log probability of the vector h
             under the model when the data is drawn according to
             stats
@@ -959,6 +963,7 @@ class S3C(Model):
             self.B = self.B_driver
 
         self.w = T.dot(self.B, T.sqr(self.W))
+        self.w.name = 'S3C.w'
 
         self.p = T.nnet.sigmoid(self.bias_hid)
 
@@ -1017,6 +1022,7 @@ class S3C(Model):
             print 'alpha: ',(alpha.min(),alpha.mean(),alpha.max())
             W = self.W.get_value(borrow=True)
             assert not np.any(np.isnan(W))
+            assert not np.any(np.isinf(W))
             print 'W: ',(W.min(),W.mean(),W.max())
             norms = numpy_norms(W)
             print 'W norms:',(norms.min(),norms.mean(),norms.max())
@@ -1049,6 +1055,13 @@ def reflection_clip(S_hat, new_S_hat, rho = 0.5):
     non_negatives = 1. - negatives
 
     rval = T.clip(new_S_hat, - rho * positives * S_hat - non_positives * ceiling, non_negatives * ceiling - rho * negatives * S_hat )
+
+    S_name = make_name(S_hat, 'anon_S_hat')
+    new_S_name = make_name(new_S_hat, 'anon_new_S_hat')
+
+    rval.name = 'reflection_clip(%s, %s)' % (S_name, new_S_name)
+
+    #rval = Print('clipped_S_hat',attrs=['min','max','mean'])(rval)
 
     return rval
 
@@ -1170,14 +1183,15 @@ class E_Step:
         needed_stats = S3C.expected_log_prob_vhs_needed_stats()
 
         stats = SufficientStatistics.from_observations( needed_stats = needed_stats,
-                                                        X = V, ** obs )
+                                                        V = V, ** obs )
 
         H_hat = obs['H_hat']
+        S_hat = obs['S_hat']
         var_s0_hat = obs['var_s0_hat']
         var_s1_hat = obs['var_s1_hat']
 
         entropy_term = (model.entropy_hs(H_hat = H_hat, var_s0_hat = var_s0_hat, var_s1_hat = var_s1_hat)).mean()
-        likelihood_term = model.expected_log_prob_vhs(stats)
+        likelihood_term = model.expected_log_prob_vhs(stats, H_hat = H_hat, S_hat = S_hat)
 
         em_functional = entropy_term + likelihood_term
 
@@ -1253,28 +1267,40 @@ class E_Step:
         w = self.model.w
 
         BW = B.dimshuffle(0,'x') * W
+        BW.name = 'infer_S_hat:BW'
 
         HS = H_hat * S_hat
+        HS.name = 'infer_S_hat:HS'
 
         mean_term = mu * alpha
+        mean_term.name = 'infer_S_hat:mean_term'
 
         data_term = T.dot(V, BW)
+        data_term.name = 'infer_S_hat:data_term'
 
         iterm_part_1 = - T.dot(T.dot(HS, W.T), BW)
+        iterm_part_1.name = 'infer_S_hat:iterm_part_1'
+        assert w.name is not None
         iterm_part_2 = w * HS
+        iterm_part_2.name = 'infer_S_hat:iterm_part_2'
 
         interaction_term = iterm_part_1 + iterm_part_2
+        interaction_term.name = 'infer_S_hat:interaction_term'
 
         for i1v, Vv in get_debug_values(iterm_part_1, V):
             assert i1v.shape[0] == Vv.shape[0]
 
         debug_interm = mean_term + data_term
+        debug_interm.name = 'infer_S_hat:debug_interm'
+
         numer = debug_interm + interaction_term
+        numer.name = 'infer_S_hat:numer'
 
         alpha = self.model.alpha
         w = self.model.w
 
         denom = alpha + w
+        denom.name = 'infer_S_hat:denom'
 
         S_hat =  numer / denom
 
