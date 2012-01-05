@@ -68,9 +68,7 @@ class SGD(TrainingAlgorithm):
 
         for param in grads:
             if grads[param].name is None:
-                grads[param].name = ('grad(%(costname)s, %(paramname)s)' %
-                                     {'costname': cost.name,
-                                      'paramname': param.name})
+                grads[param].name = 'T.grad(' + J.name + ',' + param.name
 
         learning_rate = T.scalar('sgd_learning_rate')
 
