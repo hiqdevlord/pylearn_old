@@ -187,8 +187,7 @@ class RBM(Block, Model):
     A base interface for RBMs, implementing the binary-binary case.
 
     """
-    def __init__(self, nvis, nhid, irange=0.5, rng=None,
-                 init_bias_vis=0.0, init_bias_hid=0.0):
+    def __init__(self, nvis, nhid, irange=0.5, rng=None, init_bias_hid=0.0):
         """
         Construct an RBM object.
 
@@ -214,6 +213,8 @@ class RBM(Block, Model):
         if rng is None:
             # TODO: global rng configuration stuff.
             rng = numpy.random.RandomState(1001)
+
+        """
         try:
             b_vis = numpy.zeros(nvis)
             b_vis += init_bias_vis
@@ -226,6 +227,18 @@ class RBM(Block, Model):
         except ValueError:
             raise ValueError('bad shape or value for init_bias_hid')
         self.bias_hid = sharedX(b_hid, name='bias_hid', borrow=True)
+        """
+
+        self.bias_vis = sharedX(
+            numpy.zeros(nvis),
+            name='vb',
+            borrow=True
+        )
+        self.bias_hid = sharedX(
+            numpy.zeros(nhid) + init_bias_hid,
+            name='hb',
+            borrow=True
+        )
         self.weights = sharedX(
             rng.uniform(-irange, irange, (nvis, nhid)),
             name='W',
@@ -307,7 +320,7 @@ class RBM(Block, Model):
             Theano symbolic representing the new visible unit state after one
             round of Gibbs sampling.
         locals : dict
-            Contains the following auxillary state as keys (all symbolics
+            Contains the following auxiliary state as keys (all symbolics
             except shape tuples):
              * `h_mean`: the returned value from `mean_h_given_v`
              * `h_mean_shape`: shape tuple indicating the size of `h_mean` and
