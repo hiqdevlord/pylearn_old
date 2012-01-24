@@ -1,6 +1,7 @@
 from theano import tensor as T
 from theano import shared
 import numpy as np
+import copy
 
 
 class Model(object):
