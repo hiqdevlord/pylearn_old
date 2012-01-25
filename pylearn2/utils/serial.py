@@ -124,12 +124,6 @@ def save(filepath, obj):
 
 
 def _save(filepath, obj):
-    if filepath.endswith('.npy'):
-        np.save(filepath, obj)
-        return
-    assert filepath.endswith('.pkl')
-
-
     try:
         f = open(filepath, "wb")
     except Exception, e:

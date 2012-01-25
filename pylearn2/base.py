@@ -10,7 +10,6 @@ import os.path
 import theano
 from theano import tensor
 from theano.sparse import SparseType
-from theano.compile.mode import get_default_mode
 
 # Local imports
 from pylearn2.utils import subdict
@@ -29,12 +28,6 @@ class Block(object):
     """
     Basic building block for deep architectures.
     """
-
-
-    def __init__(self):
-        self.fn = None
-        self.cpu_only = False
-
     def params(self):
         """
         Get the list of learnable parameters in a Block.
@@ -63,7 +56,6 @@ class Block(object):
         Individual classes should override __getstate__ and __setstate__
         to deal with object versioning in the case of API changes.
         """
-        self.fn = None
         save_dir = os.path.dirname(save_file)
         if save_dir and not os.path.exists(save_dir):
             os.makedirs(save_dir)
@@ -104,18 +96,10 @@ class Block(object):
     def function(self, name=None):
         """ Returns a compiled theano function to compute a representation """
         inputs = tensor.matrix()
-        if self.cpu_only:
-            return theano.function([inputs], self(inputs), name=name, mode = get_default_mode().excluding('gpu'))
-        else:
-            return theano.function([inputs], self(inputs), name=name)
+        return theano.function([inputs], self(inputs), name=name)
 
     def invalid(self):
         return None in self._params
-
-    def perform(self, X):
-        if self.fn is None:
-            self.fn = self.function("perform")
-        return self.fn(X)
 
 
 class StackedBlocks(Block):
@@ -132,9 +116,6 @@ class StackedBlocks(Block):
             The layers to be stacked, ordered
             from bottom (input) to top (output)
         """
-
-        super(StackedBlocks, self).__init__()
-
         self._layers = layers
         # Do not duplicate the parameters if some are shared between layers
         self._params = set([p for l in self._layers for p in l.params()])

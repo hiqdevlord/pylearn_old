@@ -23,9 +23,6 @@ class KMeans(Block):
         :type max_iter: int
         :param max_iter: maximum number of iterations. Defaults to infinity.
         """
-
-        super(KMeans, self).__init__()
-
         self.k = k
         self.convergence_th = convergence_th
         if max_iter:

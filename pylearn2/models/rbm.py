@@ -8,7 +8,6 @@ from itertools import izip
 # Third-party imports
 import numpy
 N = numpy
-np = numpy
 import theano
 from theano import tensor
 T = tensor
@@ -18,7 +17,6 @@ from theano.tensor import nnet
 from pylearn2.base import Block, StackedBlocks
 from pylearn2.utils import as_floatX, safe_update, sharedX
 from pylearn2.models.model import Model
-from pylearn2.optimizer import SGDOptimizer
 theano.config.warn.sum_div_dimshuffle_bug = False
 
 if 0:
@@ -163,7 +161,6 @@ class BlockGibbsSampler(Sampler):
                 particles,
                 self.s_rng
             )
-            assert particles.type.dtype == self.particles.type.dtype
             if self.particles_clip is not None:
                 p_min, p_max = self.particles_clip
                 # The clipped values should still have the same type
@@ -190,10 +187,7 @@ class RBM(Block, Model):
     A base interface for RBMs, implementing the binary-binary case.
 
     """
-    def __init__(self, nvis, nhid, irange=0.5, rng=None, init_bias_vis = 0.0, init_bias_hid=0.0,
-            base_lr = 1e-3, anneal_start = None, nchains = 100, sml_gibbs_steps = 1,
-            random_patches_src = None,
-            monitor_reconstruction = False):
+    def __init__(self, nvis, nhid, irange=0.5, rng=None, init_bias_vis = 0.0, init_bias_hid=0.0):
 
         """
         Construct an RBM object.
@@ -213,28 +207,13 @@ class RBM(Block, Model):
             Initial value of the visible biases, broadcasted as necessary.
         init_bias_hid : array_like, optional
             initial value of the hidden biases, broadcasted as necessary.
-        monitor_reconstruction : if True, will request a monitoring channel to monitor
-            reconstruction error
-        random_patches_src: Either None, or a Dataset from which to draw random patches
-            in order to initialize the weights. Patches will be multiplied by irange
-
-        Parameters for default SML learning rule:
-
-            base_lr : the base learning rate
-            anneal_start : number of steps after which to start annealing on a 1/t schedule
-            nchains: number of negative chains
-            sml_gibbs_steps: number of gibbs steps to take per update
-
         """
 
         Model.__init__(self)
-        Block.__init__(self)
-
 
         if rng is None:
             # TODO: global rng configuration stuff.
             rng = numpy.random.RandomState(1001)
-        self.rng = rng
 
         try:
             b_vis = numpy.zeros(nvis)
@@ -250,33 +229,14 @@ class RBM(Block, Model):
             raise ValueError('bad shape or value for init_bias_hid')
         self.bias_hid = sharedX(b_hid, name='bias_hid', borrow=True)
 
-        self.random_patches_src = random_patches_src
-        self.register_names_to_del(['random_patches_src'])
-
-        if random_patches_src is None:
-            W = rng.uniform(-irange, irange, (nvis, nhid))
-        else:
-            if hasattr(random_patches_src, '__array__'):
-                W = irange * random_patches_src.T
-                assert W.shape == (nvis, nhid)
-            else:
-                #assert type(irange) == type(0.01)
-                #assert irange == 0.01
-                W = irange * random_patches_src.get_batch_design(nhid).T
 
         self.weights = sharedX(
-            W,
+            rng.uniform(-irange, irange, (nvis, nhid)),
             name='W',
             borrow=True
         )
-
         self.__dict__.update(nhid=nhid, nvis=nvis)
         self._params = [self.bias_vis, self.bias_hid, self.weights]
-
-        self.base_lr = base_lr
-        self.anneal_start = anneal_start
-        self.nchains = nchains
-        self.sml_gibbs_steps = sml_gibbs_steps
 
     def get_input_dim(self):
         return self.nvis
@@ -289,13 +249,6 @@ class RBM(Block, Model):
 
     def get_weights_format(self):
         return ['v', 'h']
-
-
-    def get_monitoring_channels(self, V):
-
-        theano_rng = RandomStreams(42)
-
-        return { 'reconstruction_error' : self.reconstruction_error(V, theano_rng) }
 
     def ml_gradients(self, pos_v, neg_v):
         """
@@ -337,43 +290,6 @@ class RBM(Block, Model):
 
         return grads
 
-
-    def learn(self, dataset, batch_size):
-        """ A default learning rule based on SML """
-        self.learn_mini_batch(dataset.get_batch_design(batch_size))
-
-    def learn_mini_batch(self, X):
-        """ A default learning rule based on SML """
-
-        if not hasattr(self, 'learn_func'):
-            self.redo_theano()
-
-        rval =  self.learn_func(X)
-
-        return rval
-
-    def redo_theano(self):
-        """ Compiles the theano function for the default learning rule """
-
-        init_names = dir(self)
-
-        minibatch = tensor.matrix()
-
-        optimizer = SGDOptimizer(self, self.base_lr, self.anneal_start)
-
-        sampler = sampler = BlockGibbsSampler(self, 0.5 + np.zeros((self.nchains, self.nvis)), self.rng,
-                                                  steps= self.sml_gibbs_steps)
-
-
-        updates = training_updates(visible_batch=minibatch, model=self,
-                                            sampler=sampler, optimizer=optimizer)
-
-        self.learn_func = theano.function([minibatch], updates=updates)
-
-        final_names = dir(self)
-
-        self.register_names_to_del([name for name in final_names if name not in init_names])
-
     def gibbs_step_for_v(self, v, rng):
         """
         Do a round of block Gibbs sampling given visible configuration
@@ -407,18 +323,16 @@ class RBM(Block, Model):
              * `v_sample`: the stochastically sampled visible units
         """
         h_mean = self.mean_h_given_v(v)
-        assert h_mean.type.dtype == v.type.dtype
         # For binary hidden units
         # TODO: factor further to extend to other kinds of hidden units
         #       (e.g. spike-and-slab)
-        h_sample = rng.binomial(size = h_mean.shape, n = 1 , p = h_mean, dtype=h_mean.type.dtype)
-        assert h_sample.type.dtype == v.type.dtype
+        h_mean_shape = self.batch_size, self.nhid
+        h_sample = as_floatX(rng.uniform(size=h_mean_shape) < h_mean)
+        v_mean_shape = self.batch_size, self.nvis
         # v_mean is always based on h_sample, not h_mean, because we don't
         # want h transmitting more than one bit of information per unit.
         v_mean = self.mean_v_given_h(h_sample)
-        assert v_mean.type.dtype == v.type.dtype
-        v_sample = self.sample_visibles([v_mean], v_mean.shape, rng)
-        assert v_sample.type.dtype == v.type.dtype
+        v_sample = self.sample_visibles([v_mean], v_mean_shape, rng)
         return v_sample, locals()
 
     def sample_visibles(self, params, shape, rng):
@@ -593,8 +507,7 @@ class RBM(Block, Model):
 
     def reconstruction_error(self, v, rng):
         """
-        Compute the mean-squared error (mean over examples, sum over units)
-        across a minibatch after a Gibbs
+        Compute the mean-squared error across a minibatch after a Gibbs
         step starting from the training data.
 
         Parameters
@@ -720,7 +633,7 @@ class GaussianBinaryRBM(RBM):
             reconstruction of the visible units given the hidden units.
         """
 
-        return self.energy_function.mean_V_given_H(h)
+        return self.energy_function.mean_v_given_h(h)
         #return self.bias_vis + self.sigma * tensor.dot(h, self.weights.T)
 
     def free_energy_given_v(self, V):

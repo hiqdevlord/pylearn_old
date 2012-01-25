@@ -1,6 +1,7 @@
 from theano import tensor as T
 from theano import shared
 import numpy as np
+import copy
 
 
 class Model(object):
@@ -158,11 +159,6 @@ class Model(object):
         returned by the model's __getstate__ method
         (unless your model overrides __getstate__ )
         """
-
-        if isinstance(names, str):
-            names = [ names ]
-
-        assert isinstance(names, (list,set,tuple))
 
         self.names_to_del = self.names_to_del.union(names)
 
