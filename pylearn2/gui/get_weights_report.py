@@ -5,8 +5,7 @@ from pylearn2.datasets import control
 import numpy as np
 import warnings
 
-def get_weights_report(model_path = None, model = None, rescale = 'individual', border = False, norm_sort = False,
-        dataset = None):
+def get_weights_report(model_path = None, model = None, rescale = 'individual', border = False, norm_sort = False):
     """
         Returns a PatchViewer displaying a grid of filter weights
 
@@ -19,8 +18,6 @@ def get_weights_report(model_path = None, model = None, rescale = 'individual', 
                             is gray and no value gets clipped
                         'global' : scale the whole ensemble of weights
                         'none' :   don't rescale
-            dataset: a Dataset object to do view conversion for displaying the weights.
-                    if not provided one will be loaded from the model's dataset_yaml_src
     """
 
     if model is None:
@@ -44,12 +41,11 @@ def get_weights_report(model_path = None, model = None, rescale = 'individual', 
     else:
         raise ValueError('rescale='+rescale+", must be 'none', 'global', or 'individual'")
 
-    if dataset is None:
-        print 'loading dataset...'
-        control.push_load_data(False)
-        dataset = yaml_parse.load(p.dataset_yaml_src)
-        control.pop_load_data()
-        print '...done'
+    print 'loading dataset...'
+    control.push_load_data(False)
+    dataset = yaml_parse.load(p.dataset_yaml_src)
+    control.pop_load_data()
+    print '...done'
 
 
     W = None

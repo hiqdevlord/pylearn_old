@@ -44,8 +44,10 @@ class KMeans(Block):
 
         #TODO-- why does this sometimes return X and sometimes return nothing?
 
-        if hasattr(X, 'get_design_matrix'):
+        try:
             X = X.get_design_matrix()
+        except:
+            pass
 
         n, m = X.shape
         k = self.k
@@ -162,11 +164,6 @@ class KMeans(Block):
             dists[:, i] = numpy.square((X - mu[i, :])).sum(axis=1)
         return dists / dists.sum(axis=1).reshape(-1, 1)
 
-    def get_weights(self):
-        return self.mu
-
-    def get_weights_format(self):
-        return ['h','v']
 
 if __name__ == '__main__':
     import theano
