@@ -2,7 +2,7 @@
 from theano import tensor as T
 from theano import shared
 import numpy as np
-import warnings
+
 
 class Model(object):
     def train(self, dataset):
@@ -205,7 +205,8 @@ class Model(object):
         functions, since they do not play nice with pickling.
         """
         d = {}
-        names_to_keep = set(self.__dict__.keys()).difference(self.names_to_del)
+        names_to_del = getattr(self, 'names_to_del', set())
+        names_to_keep = set(self.__dict__.keys()).difference(names_to_del)
         for name in names_to_keep:
             d[name] = self.__dict__[name]
         return d
@@ -254,5 +255,4 @@ class Model(object):
             if hasattr(obj, 'get_value'):
                 setattr(self, field, shared(np.cast[dtype](obj.get_value())))
             if hasattr(obj, 'set_dtype'):
-                warnings.warn('this section seems necessary but does not work-- python decides object is a str. wtf')
-                #obj.set_dtype(dtype)
+                obj.set_dtype(dtype)
