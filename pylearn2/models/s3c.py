@@ -6,7 +6,7 @@ __maintainer__ = "Ian Goodfellow"
 
 
 import time
-from pylearn2.models import Model
+from pylearn2.models.model import Model
 from theano import config, function
 import theano.tensor as T
 import numpy as np
@@ -101,7 +101,7 @@ class SufficientStatistics:
             self.d[key] = d[key]
 
     @classmethod
-    def from_observations(cls, needed_stats, V, H_hat, S_hat, var_s0_hat, var_s1_hat):
+    def from_observations(self, needed_stats, V, H_hat, S_hat, var_s0_hat, var_s1_hat):
         """
             returns a SufficientStatistics
 
@@ -221,7 +221,6 @@ class S3C(Model, Block):
                        local_rf_src = None,
                        local_rf_shape = None,
                        local_rf_stride = None,
-                       local_rf_draw_patches = False,
                        init_unit_W = None,
                        debug_m_step = False,
                        print_interval = 10000,
@@ -265,8 +264,6 @@ class S3C(Model, Block):
                 requires the following other params:
                     local_rf_shape: a 2 tuple
                     local_rf_stride: a 2 tuple
-                    local_rf_draw_patches: if true, local receptive fields are patches from local_rf_src
-                                            otherwise, they're random patches
                  will initialize the weights to have only local receptive fields. (won't make a sparse
                     matrix or anything like that)
                  incompatible with random_patches_src for now
@@ -321,21 +318,11 @@ class S3C(Model, Block):
                     cc = c * local_rf_stride[1]
 
                     for i in xrange(filters_per_rf):
-
-                        if local_rf_draw_patches:
-                            img = local_rf_src.get_batch_topo(1)[0]
-                            local_rf = img[rc:rc+local_rf_shape[0],
-                                           cc:cc+local_rf_shape[1],
-                                           :]
-                        else:
-                            local_rf = self.rng.uniform(-self.irange,
-                                        self.irange,
-                                        (local_rf_shape[0], local_rf_shape[1], s[2]) )
-
-
-
                         W_img[idx,rc:rc+local_rf_shape[0],
-                          cc:cc+local_rf_shape[1],:] = local_rf
+                          cc:cc+local_rf_shape[1],:] = \
+                              self.rng.uniform(-self.irange,
+                                               self.irange,
+                                               (local_rf_shape[0], local_rf_shape[1], s[2]) )
                         idx += 1
 
 
@@ -386,7 +373,7 @@ class S3C(Model, Block):
             self.e_step = E_Step(h_new_coeff_schedule = None,
                                 rho = None,
                                 monitor_kl = None,
-                                monitor_energy_functional = None,
+                                monitor_em_functional = None,
                                 clip_reflections = None)
             assert not self.e_step.autonomous
         else:
@@ -396,8 +383,8 @@ class S3C(Model, Block):
         self.init_mu = init_mu
         self.min_mu = np.cast[config.floatX](float(min_mu))
         self.max_mu = np.cast[config.floatX](float(max_mu))
-        self.min_bias_hid = float(min_bias_hid)
-        self.max_bias_hid = float(max_bias_hid)
+        self.min_bias_hid = min_bias_hid
+        self.max_bias_hid = max_bias_hid
         self.recycle_q = recycle_q
         self.tied_B = tied_B
 
@@ -437,7 +424,7 @@ class S3C(Model, Block):
 
         if self.debug_m_step:
             warnings.warn('M step debugging activated-- this is only valid for certain settings, and causes a performance slowdown.')
-            self.energy_functional_diff = sharedX(0.)
+            self.em_functional_diff = sharedX(0.)
 
 
         if self.monitor_norms:
@@ -445,35 +432,15 @@ class S3C(Model, Block):
 
         self.redo_theano()
 
-    @classmethod
-    def energy_functional_needed_stats(cls):
-        return S3C.expected_log_prob_vhs_needed_stats()
-
-    def energy_functional(self, H_hat, S_hat, var_s0_hat, var_s1_hat, stats):
-        """ Returns the energy_functional for a single batch of data
+    def em_functional(self, H_hat, S_hat, var_s0_hat, var_s1_hat, stats):
+        """ Returns the em_functional for a single batch of data
             stats is assumed to be computed from and only from
             the same data points that yielded H """
 
-        entropy_term = self.entropy_hs(H_hat = H_hat, var_s0_hat = var_s0_hat, var_s1_hat = var_s1_hat).mean()
+        entropy_term = (self.entropy_hs(H_hat = H_hat, var_s0_hat = var_s0_hat, var_s1_hat = var_s1_hat)).mean()
         likelihood_term = self.expected_log_prob_vhs(stats, H_hat = H_hat, S_hat = S_hat)
 
         em_functional = likelihood_term + entropy_term
-        assert len(em_functional.type.broadcastable) == 0
-
-        return em_functional
-
-    def energy_functional_batch(self, V, H_hat, S_hat, var_s0_hat, var_s1_hat):
-        """ Returns the energy_functional for a single batch of data
-            stats is assumed to be computed from and only from
-            the same data points that yielded H """
-
-        entropy_term = self.entropy_hs(H_hat = H_hat, var_s0_hat = var_s0_hat, var_s1_hat = var_s1_hat)
-        assert len(entropy_term.type.broadcastable) == 1
-        likelihood_term = self.expected_log_prob_vhs_batch(V = V, H_hat = H_hat, S_hat = S_hat, var_s0_hat = var_s0_hat, var_s1_hat = var_s1_hat)
-        assert len(likelihood_term.type.broadcastable) == 1
-
-        em_functional = likelihood_term + entropy_term
-        assert len(em_functional.type.broadcastable) == 1
 
         return em_functional
 
@@ -722,8 +689,6 @@ class S3C(Model, Block):
 
         rval = term1_plus_term2 + term3 + term4
 
-        assert len(rval.type.broadcastable) == 1
-
         return rval
 
     def get_hidden_obs(self, V, return_history = False):
@@ -863,7 +828,7 @@ class S3C(Model, Block):
 
         V_mean = T.dot(final_hs_sample, self.W.T)
 
-        warnings.warn('showing conditional means (given sampled h and s) on visible units rather than true samples')
+        warnings.warn('showing conditional means on visible units rather than true samples')
         return V_mean
 
         V_sample = theano_rng.normal( size = V_mean.shape, avg = V_mean, std = self.B)
@@ -891,31 +856,6 @@ class S3C(Model, Block):
         rval = expected_log_prob_v_given_hs + expected_log_prob_s_given_h + expected_log_prob_h
 
         assert len(rval.type.broadcastable) == 0
-
-        return rval
-
-    def expected_log_prob_vhs_batch(self, V, H_hat, S_hat, var_s0_hat, var_s1_hat):
-
-        half = as_floatX(0.5)
-        two = as_floatX(2.)
-        pi = as_floatX(np.pi)
-        N = as_floatX(self.nhid)
-
-        #log partition function terms
-        term1 = half * T.sum(T.log(self.B))
-        term2 = - half * N * T.log(two * pi)
-        term3 = half * T.log( self.alpha ).sum()
-        term4 = - half * N * T.log(two*pi)
-        term5 = - T.nnet.softplus(self.bias_hid).sum()
-
-        negative_log_partition_function = term1 + term2 + term3 + term4 + term5
-        assert len(negative_log_partition_function.type.broadcastable) == 0
-
-        #energy term
-        negative_energy = - self.expected_energy_vhs(V = V, H_hat = H_hat, S_hat = S_hat, var_s0_hat = var_s0_hat, var_s1_hat = var_s1_hat)
-        assert len(negative_energy.type.broadcastable) == 1
-
-        rval = negative_log_partition_function + negative_energy
 
         return rval
 
@@ -1024,7 +964,6 @@ class S3C(Model, Block):
         assert len(rval.type.broadcastable) == 0
 
         return rval
-
 
     @classmethod
     def expected_log_prob_s_given_h_needed_stats(cls):
@@ -1257,7 +1196,7 @@ class E_Step(object):
 
         rval = {}
 
-        if self.monitor_kl or self.monitor_energy_functional or self.monitor_s_mag:
+        if self.monitor_kl or self.monitor_em_functional or self.monitor_s_mag:
             obs_history = self.model.get_hidden_obs(V, return_history = True)
             assert isinstance(obs_history, list)
 
@@ -1265,7 +1204,7 @@ class E_Step(object):
                 obs = obs_history[i-1]
                 if self.monitor_kl:
                     rval['trunc_KL_'+str(i)] = self.truncated_KL(V, obs).mean()
-                if self.monitor_energy_functional:
+                if self.monitor_em_functional:
                     rval['em_functional_'+str(i)] = self.em_functional(V, self.model, obs).mean()
                 if self.monitor_s_mag:
                     rval['s_mag_'+str(i)] = T.sqrt(T.sum(T.sqr(obs['S_hat'])))
@@ -1277,7 +1216,7 @@ class E_Step(object):
                        s_new_coeff_schedule = None,
                        clip_reflections = False,
                        monitor_kl = False,
-                       monitor_energy_functional = False,
+                       monitor_em_functional = False,
                        monitor_s_mag = False,
                        rho = 0.5):
         """Parameters
@@ -1306,7 +1245,7 @@ class E_Step(object):
             assert s_new_coeff_schedule is None
             assert rho is None
             assert clip_reflections is None
-            assert monitor_energy_functional is None
+            assert monitor_em_functional is None
         else:
             if s_new_coeff_schedule is None:
                 s_new_coeff_schedule = [ 1.0 for rho in h_new_coeff_schedule ]
@@ -1318,7 +1257,7 @@ class E_Step(object):
         self.clip_reflections = clip_reflections
         self.h_new_coeff_schedule = h_new_coeff_schedule
         self.monitor_kl = monitor_kl
-        self.monitor_energy_functional = monitor_energy_functional
+        self.monitor_em_functional = monitor_em_functional
 
         if self.autonomous:
             self.rho = as_floatX(rho)
