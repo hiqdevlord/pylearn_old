@@ -10,7 +10,7 @@ see train_example.yaml for an example
 """
 # Standard library imports
 import sys
-import datetime
+import time
 import os
 
 # Local imports
@@ -63,12 +63,13 @@ class Train(object):
         else:
             self.algorithm.setup(model = self.model, dataset = self.dataset)
 
-            epoch_start = datetime.datetime.now()
+            t1 = time.time()
             while self.algorithm.train(dataset = self.dataset):
-                epoch_end = datetime.datetime.now()
-                print 'Time this epoch:', str(epoch_end - epoch_start)
+                t2 = time.time()
+                diff_time = t2-t1
+                print 'Time this epoch: '+str(diff_time)
                 self.save()
-                epoch_start = datetime.datetime.now()
+                t1 = time.time()
 
                 for callback in self.callbacks:
                     callback(self.model, self.dataset, self.algorithm)
@@ -84,12 +85,10 @@ class Train(object):
         #TODO-- save state of dataset and training algorithm so training can be resumed after a crash
         if self.save_path is not None:
             print 'saving to ',self.save_path,'...'
-            save_start = datetime.datetime.now()
+            t1 = time.time()
             serial.save(self.save_path, self.model)
-            save_end = datetime.datetime.now()
-            # TODO: format this better
-            seconds = (save_end - save_start).total_seconds()
-            print '...done. saving took ', seconds, ' seconds'
+            t2 = time.time()
+            print '...done. saving took ',(t2-t1),' seconds'
         #
     #
 
