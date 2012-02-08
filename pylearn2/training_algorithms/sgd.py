@@ -23,7 +23,7 @@ class SGD(TrainingAlgorithm):
     def __init__(self, learning_rate, cost, batch_size=None,
                  batches_per_iter=1000, monitoring_batches=-1,
                  monitoring_dataset=None, termination_criterion=None,
-                 update_callbacks=None):
+                 learning_rate_adjuster=None):
         """
         Instantiates an SGD object.
 
@@ -46,7 +46,7 @@ class SGD(TrainingAlgorithm):
             WRITEME
         termination_criterion : object, optional
             WRITEME
-        update_callback : iterable or object, optional
+        learning_rate_adjuster : object, optional
             WRITEME
 
         Notes
@@ -69,7 +69,7 @@ class SGD(TrainingAlgorithm):
         self.monitoring_dataset = monitoring_dataset
         self.monitoring_batches = monitoring_batches
         self.termination_criterion = termination_criterion
-        self._register_update_callbacks(update_callbacks)
+        self.learning_rate_adjuster = learning_rate_adjuster
         self.bSetup = False
         self.first = True
 
@@ -178,8 +178,12 @@ class SGD(TrainingAlgorithm):
             self.monitor.examples_seen += batch_size
 
         self.monitor()
-        for callback in self.update_callbacks:
-            callback(self)
+
+        if self.learning_rate_adjuster is not None:
+            self.learning_rate = self.learning_rate_adjuster(
+                self.learning_rate,
+                self.model
+            )
         if self.termination_criterion is None:
             return True
         else:
@@ -189,14 +193,14 @@ class SGD(TrainingAlgorithm):
 class UnsupervisedExhaustiveSGD(TrainingAlgorithm):
     def __init__(self, learning_rate, cost, batch_size=None,
                  monitoring_batches=None, monitoring_dataset=None,
-                 termination_criterion=None, update_callbacks=None):
+                 termination_criterion=None):
         self.learning_rate = float(learning_rate)
         self.cost = cost
         self.batch_size = batch_size
         self.monitoring_dataset = monitoring_dataset
         self.monitoring_batches = monitoring_batches
         self.termination_criterion = termination_criterion
-        self._register_update_callbacks(update_callbacks)
+        self.learning_rate_adjuster = None
         self.first = False
 
     def setup(self, model, dataset):
@@ -271,8 +275,12 @@ class UnsupervisedExhaustiveSGD(TrainingAlgorithm):
             self.monitor.examples_seen += batch_size
         self.slice_iterator.reset()
         self.monitor()
-        for callback in self.update_callbacks:
-            callback(self)
+
+        if self.learning_rate_adjuster is not None:
+            self.learning_rate = self.learning_rate_adjuster(
+                self.learning_rate,
+                self.model
+            )
         if self.termination_criterion is None:
             return True
         else:
@@ -304,10 +312,7 @@ class MonitorBasedLRAdjuster(object):
         self.low_trigger = low_trigger
         self.grow_amt = grow_amt
 
-    def __call__(self, algorithm):
-        # TODO: more sophisticated error checking here.
-        model = algorithm.model
-        current_learning_rate = algorithm.learning_rate
+    def __call__(self, current_learning_rate, model):
         assert hasattr(model, 'monitor'), ("no monitor associated with " +
                                            str(model))
         monitor = model.monitor
@@ -327,7 +332,7 @@ class MonitorBasedLRAdjuster(object):
             # TODO: logging infrastructure
             print "growing learning rate to", rval
 
-        algorithm.learning_rate = rval
+        return rval
 
 
 class MonitorBasedTermCrit(object):
