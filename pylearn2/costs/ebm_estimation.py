@@ -111,6 +111,7 @@ class SMD:
 
     def __init__(self, corruptor):
         self.corruptor = corruptor
+    #
 
     def __call__(self, model, X):
         X_name = 'X' if X.name is None else X.name
@@ -122,15 +123,13 @@ class SMD:
         #
 
         model_score = model.score(corrupted_X)
-        assert len(model_score.type.broadcastable) == len(X.type.broadcastable)
         parzen_score = T.grad( - T.sum(self.corruptor.corruption_free_energy(corrupted_X,X)), corrupted_X)
-        assert len(parzen_score.type.broadcastable) == len(X.type.broadcastable)
 
         score_diff = model_score - parzen_score
         score_diff.name = 'smd_score_diff('+X_name+')'
 
 
-        assert len(score_diff.type.broadcastable) == len(X.type.broadcastable)
+        assert len(score_diff.type.broadcastable) == 2
 
 
         #TODO: this could probably be faster as a tensordot, but we don't have tensordot for gpu yet
@@ -142,3 +141,5 @@ class SMD:
         smd.name = 'SMD('+X_name+')'
 
         return smd
+    #
+#

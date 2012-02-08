@@ -39,13 +39,8 @@ while True:
         codebook[code] = channel_name
 
 
-
-    if len(channels.values()) == 0:
-        print "there are no channels to plot"
-        break
-
-    #if there is more than one channel in the monitor ask which ones to plot
-    prompt = len(channels.values()) > 1
+#if there is more than one channel in the monitor ask which ones to plot
+    prompt = len(channels.values()) > 0
 
     if prompt:
 

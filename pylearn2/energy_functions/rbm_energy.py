@@ -4,6 +4,8 @@ import theano.tensor as T
 class RBM_EnergyFunction(EnergyFunction):
     def __init__(self):
         pass
+    #
+#
 
 class GRBM_EnergyFunction(RBM_EnergyFunction):
     def supports_vector_sigma(self):
@@ -55,10 +57,13 @@ class GRBM_Type_1(GRBM_EnergyFunction):
         other parameterizations)
     """
 
-    def __init__(self, transformer, bias_hid, bias_vis, sigma):
+
+
+
+    def __init__(self, W, bias_hid, bias_vis, sigma):
         super(GRBM_Type_1,self).__init__()
 
-        self.transformer = transformer
+        self.W = W
         self.bias_hid = bias_hid
         self.bias_vis = bias_vis
         self.sigma = sigma
@@ -71,45 +76,30 @@ class GRBM_Type_1(GRBM_EnergyFunction):
         V, H = varlist
         return - (
                     T.dot(V, self.bias_vis) +
-                    (self.transformer.lmul(V) * H).sum(axis=1) +
+                    (T.dot(V, self.W) * H).sum(axis=1) +
                     T.dot(H, self.bias_hid) -
                     0.5 * T.sqr(V).sum(axis=1)
                 ) / T.sqr(self.sigma)
 
 
     def mean_H_given_V(self, V):
-        V_name = 'V'
-        if hasattr(V, 'name') and V.name is not None:
-            V_name = V.name
-
-        rval =  T.nnet.sigmoid( \
+        return T.nnet.sigmoid( \
                 ( \
                     self.bias_hid + \
-                    self.transformer.lmul(V) \
+                    T.dot(V,self.W) \
                 ) / T.sqr(self.sigma) \
                         )
-
-        rval.name = 'mean_H_given_V( %s )' % V_name
-
-        return rval
+    #
 
     def reconstruct(self, V):
         H = self.mean_H_given_V(V)
         R = self.mean_V_given_H(H)
         return R
+    #
 
     def mean_V_given_H(self, H):
-        H_name = 'H'
-        if hasattr(H,'name') and H.name is not None:
-            H_name = H.name
-
-        transpose = self.transformer.lmul_T(H)
-        transpose.name = 'transpose'
-
-        rval =  self.bias_vis + transpose
-        rval.name = 'mean_V_given_H(%s)' % H_name
-
-        return rval
+        return self.bias_vis + T.dot(H,self.W.T)
+    #
 
     def free_energy(self, V):
         V_name = 'V' if V.name is None else V.name
@@ -122,7 +112,7 @@ class GRBM_Type_1(GRBM_EnergyFunction):
         sq_term.name = 'sq_term'
         assert len(sq_term.type.broadcastable) == 1
 
-        softplus_term =  T.nnet.softplus( (self.transformer.lmul(V)+self.bias_hid) / T.sqr(self.sigma)).sum(axis=1)
+        softplus_term =  T.nnet.softplus( (T.dot(V,self.W)+self.bias_hid) / T.sqr(self.sigma)).sum(axis=1)
         assert len(softplus_term.type.broadcastable) == 1
         softplus_term.name = 'softplus_term'
 
@@ -130,18 +120,17 @@ class GRBM_Type_1(GRBM_EnergyFunction):
                 sq_term
                 - bias_term
                 ) / T.sqr(self.sigma) - softplus_term
+    #
 
     def score(self, V):
         #score(v) = ( v - bias_vis - sigmoid( beta v^T W + bias_hid ) W^T )/sigma^2
 
-        rval =  -( V \
+        return -( V \
                 - self.reconstruct(V) \
                 ) / \
             T.sqr(self.sigma)
-
-        rval.name = 'score'
-
-        return rval
+    #
+#
 
 def grbm_type_1():
     return GRBM_Type_1
