@@ -12,11 +12,6 @@ hdf_reader = None
 
 
 def load(filepath, recurse_depth=0):
-    try:
-        import joblib
-        joblib_available = True
-    except ImportError:
-        joblib_available = False
     if recurse_depth == 0:
         filepath = preprocess(filepath)
 
@@ -59,11 +54,9 @@ def load(filepath, recurse_depth=0):
             return load(filepath, recurse_depth + 1)
 
     try:
-        if not joblib_available:
-            with open(filepath, 'rb') as f:
-                obj = cPickle.load(f)
-        else:
-            obj = joblib.load(filepath)
+        f = open(filepath, 'rb')
+        obj = cPickle.load(f)
+        f.close()
         return obj
     except BadPickleGet, e:
         print ('Failed to open ' + str(filepath) +
@@ -101,22 +94,6 @@ def load(filepath, recurse_depth=0):
 
 
 def save(filepath, obj):
-    """
-    Serialize `object` to a file denoted by `filepath`.
-
-    Parameters
-    ----------
-    filepath : str
-        A filename. If the suffix is `.joblib` and joblib can be
-        imported, `joblib.dump` is used in place of the regular
-        pickling mechanisms; this results in much faster saves by
-        saving arrays as separate .npy files on disk. If the file
-        suffix is `.npy` than `numpy.save` is attempted on `obj`.
-        Otherwise, (c)pickle is used.
-
-    obj : object
-        A Python object to be serialized.
-    """
     filepath = preprocess(filepath)
     try:
         _save(filepath, obj)
@@ -155,42 +132,35 @@ def _save(filepath, obj):
     if filepath.endswith('.npy'):
         np.save(filepath, obj)
         return
-    # This is dumb
-    # assert filepath.endswith('.pkl')
+    assert filepath.endswith('.pkl')
     save_dir = os.path.dirname(filepath)
-    # Handle current working directory case.
-    if save_dir == '':
-        save_dir = '.'
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-    if os.path.exists(save_dir) and not os.path.isdir(save_dir):
-        raise IOError("save path %s exists, not a directory" % save_dir)
+    if not os.path.exists(save_dir) or not os.path.isdir(save_dir):
+        raise IOError("save path %s is not an existing directory" % save_dir)
     elif not os.access(save_dir, os.W_OK):
         raise IOError("permission error creating %s" % filepath)
     try:
-        if joblib_available and filepath.endswith('.joblib'):
+        if joblib_available:
             joblib.dump(obj, filepath)
         else:
-            if filepath.endswith('.joblib'):
-                warnings.warn('Warning: .joblib suffix specified but joblib '
-                              'unavailable. Using ordinary pickle.')
             with open(filepath, 'wb') as filehandle:
                 cPickle.dump(obj, filehandle)
     except Exception, e:
-        # TODO: logging, or warning
-        print "cPickle has failed to write an object to " + filepath
+        print "cPickle has failed to write an object to "+filepath
         if str(e).find('maximum recursion depth exceeded') != -1:
             raise
         try:
-            # TODO: logging, or warning
             print 'retrying with pickle'
-            with open(filepath, "wb") as f:
-                pickle.dump(obj, f)
+            f = open(filepath, "wb")
+            pickle.dump(obj, f)
+            f.close()
         except Exception, e2:
+            try:
+                f.close()
+            except:
+                pass
             if str(e) == '' and str(e2) == '':
-                # TODO: logging, or warning
                 print (
-                    'neither cPickle nor pickle could write to %s' % filepath
+                    'neither cPickle nor pickle could write to ' + str(filepath)
                 )
                 print (
                     'moreover, neither of them raised an exception that '
@@ -201,8 +171,9 @@ def _save(filepath, obj):
                     'try/catch loop so you can see if it prints anything '
                     'when it dies'
                 )
-                with open(filepath, 'wb') as f:
-                    cPickle.dump(obj, f)
+                f = open(filepath, 'wb')
+                cPickle.dump(obj, f)
+                f.close()
                 print ('Somehow or other, the file write worked once '
                        'we quit using the try/catch.')
             else:
@@ -211,12 +182,13 @@ def _save(filepath, obj):
 
                 import pdb
                 tb = pdb.traceback.format_exc()
-                raise IOError(str(obj) +
-                              ' could not be written to '+
-                              str(filepath) +
-                              ' by cPickle due to ' + str(e) +
-                              ' nor by pickle due to ' + str(e2) +
-                              '. \nTraceback '+ tb)
+
+                raise Exception(str(obj) +
+                                ' could not be written to '+
+                                str(filepath) +
+                                ' by cPickle due to '+str(e)+
+                                ' nor by pickle due to '+str(e2)+
+                                '. \nTraceback '+ tb)
         print ('Warning: ' + str(filepath) +
                ' was written by pickle instead of cPickle, due to '
                + str(e) +
