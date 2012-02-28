@@ -1,5 +1,7 @@
+from __future__ import division
+import datetime
 import numpy as np
-from theano import function
+from theano import function, config
 import theano.tensor as T
 from warnings import warn
 from pylearn2.monitor import Monitor
@@ -95,14 +97,11 @@ class SGD(TrainingAlgorithm):
                                  batches=self.monitoring_batches,
                                  batch_size=self.batch_size)
 
-        space = self.model.get_input_space()
-
-        X = space.make_theano_batch(name='sgd_X')
-
-        self.topo = len(X.type.broadcastable) > 2
-
-
-        J = self.cost(model, X)
+        X = T.matrix(name='sgd_X')
+        try:
+            J = sum(c(model, X) for c in self.cost)
+        except TypeError:
+            J = self.cost(model, X)
         if J.name is None:
             J.name = 'sgd_cost(' + X.name + ')'
         self.monitor.add_channel(name=J.name, ipt=X, val=J)
@@ -166,10 +165,7 @@ class SGD(TrainingAlgorithm):
             self.monitor()
         self.first = False
         for i in xrange(self.batches_per_iter):
-            if self.topo:
-                X = dataset.get_batch_topo(batch_size)
-            else:
-                X = dataset.get_batch_design(batch_size)
+            X = dataset.get_batch_design(batch_size)
 
             #print '\n----------------'
             self.sgd_update(X, self.learning_rate)
@@ -206,16 +202,28 @@ class UnsupervisedExhaustiveSGD(TrainingAlgorithm):
         self.monitoring_batches = monitoring_batches
         self.termination_criterion = termination_criterion
         self._register_update_callbacks(update_callbacks)
-        self.first = False
+        self.first = True
 
     def setup(self, model, dataset):
         self.model = model
         self.monitor = Monitor.get_monitor(model)
+        # TODO: monitoring batch size ought to be configurable
+        # separately from training batch size, e.g. if you would rather
+        # monitor on one somewhat big batch but update on many small
+        # batches.
         self.monitor.set_dataset(dataset=self.monitoring_dataset,
                                  batches=self.monitoring_batches,
                                  batch_size=self.batch_size)
-        X = T.matrix(name="%s(X)" % self.__class__.__name__)
-        cost_value = self.cost(model, X)
+        X = T.matrix(name="%s[X]" % self.__class__.__name__)
+        try:
+            iter(self.cost)
+            iterable_cost = True
+        except TypeError:
+            iterable_cost = False
+        if iterable_cost:
+            cost_value = sum(c(model, X) for c in self.cost)
+        else:
+            cost_value = self.cost(model, X)
         if cost_value.name is None:
             cost_value.name = 'sgd_cost(' + X.name + ')'
         self.monitor.add_channel(name=cost_value.name, ipt=X, val=cost_value)
@@ -274,7 +282,7 @@ class UnsupervisedExhaustiveSGD(TrainingAlgorithm):
         design_matrix = dataset.get_design_matrix()
         # TODO: add support for reshuffling examples.
         for batch_slice in self.slice_iterator:
-            batch = design_matrix[batch_slice]
+            batch = np.cast[config.floatX](design_matrix[batch_slice])
             self.sgd_update(batch, self.learning_rate)
             self.monitor.batches_seen += 1
             self.monitor.examples_seen += batch_size
@@ -307,14 +315,11 @@ class MonitorBasedLRAdjuster(object):
     """
 
     def __init__(self, high_trigger=1., shrink_amt=.99,
-                 low_trigger=.99, grow_amt=1.01,
-                 min_lr = 1e-7, max_lr = 1.):
+                 low_trigger=.99, grow_amt=1.01):
         self.high_trigger = high_trigger
         self.shrink_amt = shrink_amt
         self.low_trigger = low_trigger
         self.grow_amt = grow_amt
-        self.min_lr = min_lr
-        self.max_lr = max_lr
 
     def __call__(self, algorithm):
         # TODO: more sophisticated error checking here.
@@ -338,9 +343,6 @@ class MonitorBasedLRAdjuster(object):
             rval *= self.grow_amt
             # TODO: logging infrastructure
             print "growing learning rate to", rval
-
-        rval = max(self.min_lr, rval)
-        rval = min(self.max_lr, rval)
 
         algorithm.learning_rate = rval
 
@@ -386,6 +388,22 @@ class EpochCounter(object):
     def __call__(self, model):
         self._epochs_done += 1
         return self._epochs_done < self._max_epochs
+
+
+class AnnealedLearningRate(object):
+    def __init__(self, anneal_start):
+        self._initialized = False
+        self._count = 0
+        self._anneal_start = anneal_start
+
+    def __call__(self, algorithm):
+        if not self._initialized:
+            self._base = algorithm.learning_rate
+        self._count += 1
+        algorithm.learning_rate = self.current_learning_rate()
+
+    def current_learning_rate(self):
+        return self._base * min(1, self._anneal_start / self._count)
 
 
 # This might be worth rolling into the SGD logic directly at some point.
