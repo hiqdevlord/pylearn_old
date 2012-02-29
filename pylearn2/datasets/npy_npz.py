@@ -1,6 +1,5 @@
 """Objects for datasets serialized in the NumPy native format (.npy/.npz)."""
 import numpy
-from theano import config
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 
 class NpyDataset(DenseDesignMatrix):
@@ -21,7 +20,6 @@ class NpyDataset(DenseDesignMatrix):
         """
         loaded = numpy.load(file, mmap_mode)
         assert isinstance(loaded, numpy.ndarray), "single arrays (.npy) only"
-        loaded = numpy.cast[config.floatX](loaded)
         if len(loaded.shape) == 2:
             super(NpyDataset, self).__init__(X=loaded)
         else:
