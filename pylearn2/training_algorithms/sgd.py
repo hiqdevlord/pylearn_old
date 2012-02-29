@@ -1,9 +1,11 @@
+from __future__ import division
+import datetime
 import numpy as np
-from theano import function
+from theano import function, config
 import theano.tensor as T
 from warnings import warn
 from pylearn2.monitor import Monitor
-from pylearn2.utils.iteration import BatchIterator
+from pylearn2.utils.iteration import SequentialSubsetIterator
 from pylearn2.training_algorithms.training_algorithm import TrainingAlgorithm
 
 
@@ -101,8 +103,11 @@ class SGD(TrainingAlgorithm):
 
         self.topo = len(X.type.broadcastable) > 2
 
+        try:
+            J = sum(c(model, X) for c in self.cost)
+        except TypeError:
+            J = self.cost(model, X)
 
-        J = self.cost(model, X)
         if J.name is None:
             J.name = 'sgd_cost(' + X.name + ')'
         self.monitor.add_channel(name=J.name, ipt=X, val=J)
@@ -162,8 +167,6 @@ class SGD(TrainingAlgorithm):
             if np.any(np.isnan(value)) or np.any(np.isinf(value)):
                 raise Exception("NaN in " + param.name)
 
-        if self.first:
-            self.monitor()
         self.first = False
         for i in xrange(self.batches_per_iter):
             if self.topo:
@@ -186,9 +189,12 @@ class SGD(TrainingAlgorithm):
             self.monitor.batches_seen += 1
             self.monitor.examples_seen += batch_size
 
-        self.monitor()
         for callback in self.update_callbacks:
-            callback(self)
+            try:
+                callback(self)
+            except Exception as e:
+                print ("WARNING: callback " + str(callback) + " failed with "
+                       + str(type(e)) + ", mesage: " + str(e))
         if self.termination_criterion is None:
             return True
         else:
@@ -206,16 +212,29 @@ class UnsupervisedExhaustiveSGD(TrainingAlgorithm):
         self.monitoring_batches = monitoring_batches
         self.termination_criterion = termination_criterion
         self._register_update_callbacks(update_callbacks)
-        self.first = False
+        self.first = True
 
     def setup(self, model, dataset):
         self.model = model
         self.monitor = Monitor.get_monitor(model)
+        # TODO: monitoring batch size ought to be configurable
+        # separately from training batch size, e.g. if you would rather
+        # monitor on one somewhat big batch but update on many small
+        # batches.
         self.monitor.set_dataset(dataset=self.monitoring_dataset,
                                  batches=self.monitoring_batches,
                                  batch_size=self.batch_size)
-        X = T.matrix(name="%s(X)" % self.__class__.__name__)
-        cost_value = self.cost(model, X)
+        dataset.set_iteration_scheme('sequential', batch_size=self.batch_size)
+        X = T.matrix(name="%s[X]" % self.__class__.__name__)
+        try:
+            iter(self.cost)
+            iterable_cost = True
+        except TypeError:
+            iterable_cost = False
+        if iterable_cost:
+            cost_value = sum(c(model, X) for c in self.cost)
+        else:
+            cost_value = self.cost(model, X)
         if cost_value.name is None:
             cost_value.name = 'sgd_cost(' + X.name + ')'
         self.monitor.add_channel(name=cost_value.name, ipt=X, val=cost_value)
@@ -243,8 +262,6 @@ class UnsupervisedExhaustiveSGD(TrainingAlgorithm):
         self.sgd_update = function([X, learning_rate], updates=updates,
                                    name='sgd_update')
         self.params = params
-        num_examples = dataset.get_design_matrix().shape[0]
-        self.slice_iterator = BatchIterator(num_examples, self.batch_size)
 
     def train(self, dataset):
         if not hasattr(self, 'sgd_update'):
@@ -268,20 +285,15 @@ class UnsupervisedExhaustiveSGD(TrainingAlgorithm):
             value = param.get_value(borrow=True)
             if np.any(np.isnan(value)) or np.any(np.isinf(value)):
                 raise Exception("NaN in " + param.name)
-        if self.first:
-            self.monitor()
         self.first = False
-        design_matrix = dataset.get_design_matrix()
-        # TODO: add support for reshuffling examples.
-        for batch_slice in self.slice_iterator:
-            batch = design_matrix[batch_slice]
-            self.sgd_update(batch, self.learning_rate)
+        dataset.set_iteration_scheme('sequential', batch_size=self.batch_size)
+        for batch in dataset:
+            grads = self.sgd_update(batch, self.learning_rate)
+            #print grads
             self.monitor.batches_seen += 1
             self.monitor.examples_seen += batch_size
-        self.slice_iterator.reset()
-        self.monitor()
-        for callback in self.update_callbacks:
-            callback(self)
+            for callback in self.update_callbacks:
+                callback(self)
         if self.termination_criterion is None:
             return True
         else:
@@ -289,7 +301,16 @@ class UnsupervisedExhaustiveSGD(TrainingAlgorithm):
 
 
 class MonitorBasedLRAdjuster(object):
-    """A learning rate adjuster that pulls out the only channel
+    """
+
+    DO NOT USE AS A CALLBACK FOR THE SGD ALGORITHM.
+
+    THIS IS A CALLBACK FOR THE TRAIN OBJECT, WHICH ONLY MAKES
+    SENSE IF TRAIN IS USING THE SGD ALGORITHM. IT IS NOT A
+    CALLBACK FOR THE SGD ALGORITHM.
+
+
+    A learning rate adjuster that pulls out the only channel
     in the model's monitor (this won't work for multiple-channel
     monitors, TODO fix this issue) and adjusts the learning rate
     based on what happened to the monitoring error on the last
@@ -316,7 +337,7 @@ class MonitorBasedLRAdjuster(object):
         self.min_lr = min_lr
         self.max_lr = max_lr
 
-    def __call__(self, algorithm):
+    def __call__(self, model, dataset, algorithm):
         # TODO: more sophisticated error checking here.
         model = algorithm.model
         current_learning_rate = algorithm.learning_rate
@@ -327,6 +348,22 @@ class MonitorBasedLRAdjuster(object):
         assert len(v) == 1, ("Only single channel monitors are supported "
                              "(currently)")
         v = v[0].val_record
+
+        if len(v) < 2:
+
+            if monitor.dataset is None:
+                assert len(v) == 0
+                raise ValueError("""You're trying to use a monitor-based learning
+                        adjustor but the monitor has no entries because you didn't
+                        specify a monitoring dataset""")
+
+            raise ValueError("""For some reason there are fewer than 2 monitor entries,
+                    yet the MonitorBasedLRAdjuster has been called. This should NEVER happen.
+                    The training algorithm should call the monitor once on initialization, then
+                    after each parameter update should call the monitor followed by the callbacks.
+                    It seems you are either calling the callback manually rather than as part of
+                    a training algorithm, or you are using an incorrectly implemented training
+                    algorithm.""")
 
         rval = current_learning_rate
 
@@ -386,6 +423,22 @@ class EpochCounter(object):
     def __call__(self, model):
         self._epochs_done += 1
         return self._epochs_done < self._max_epochs
+
+
+class AnnealedLearningRate(object):
+    def __init__(self, anneal_start):
+        self._initialized = False
+        self._count = 0
+        self._anneal_start = anneal_start
+
+    def __call__(self, algorithm):
+        if not self._initialized:
+            self._base = algorithm.learning_rate
+        self._count += 1
+        algorithm.learning_rate = self.current_learning_rate()
+
+    def current_learning_rate(self):
+        return self._base * min(1, self._anneal_start / self._count)
 
 
 # This might be worth rolling into the SGD logic directly at some point.

@@ -27,10 +27,8 @@ def get_weights_report(model_path = None, model = None, rescale = 'individual', 
         print 'making weights report'
         print 'loading model'
         model = serial.load(model_path)
-        p = model
         print 'loading done'
     else:
-        p = model
         assert model_path is None
     assert model is not None
 
@@ -46,6 +44,16 @@ def get_weights_report(model_path = None, model = None, rescale = 'individual', 
     else:
         raise ValueError('rescale='+rescale+", must be 'none', 'global', or 'individual'")
 
+
+    if isinstance(model, dict):
+        #assume this was a saved matlab dictionary
+        del model['__version__']
+        del model['__header__']
+        del model['__globals__']
+        weights ,= model.values()
+
+        return patch_viewer.make_viewer(weights, is_color = weights.shape[1] % 3 == 0)
+
     weights_view = None
     W = None
     try:
@@ -56,32 +64,30 @@ def get_weights_report(model_path = None, model = None, rescale = 'individual', 
         if dataset is None:
             print 'loading dataset...'
             control.push_load_data(False)
-            dataset = yaml_parse.load(p.dataset_yaml_src)
+            dataset = yaml_parse.load(model.dataset_yaml_src)
             control.pop_load_data()
             print '...done'
 
+        if hasattr(model,'get_weights'):
+            W = model.get_weights()
 
+        if 'weightsShared' in dir(model):
+            W = model.weightsShared.get_value()
 
-        if hasattr(p,'get_weights'):
-            W = p.get_weights()
-
-        if 'weightsShared' in dir(p):
-            W = p.weightsShared.get_value()
-
-        if 'W' in dir(p):
-            if hasattr(p.W,'__array__'):
+        if 'W' in dir(model):
+            if hasattr(model.W,'__array__'):
                 warnings.warn('model.W is an ndarray; I can figure out how to display this but that seems like a sign of a bad bug')
-                W = p.W
+                W = model.W
             else:
-                W = p.W.get_value()
+                W = model.W.get_value()
 
         has_D = False
-        if 'D' in dir(p):
+        if 'D' in dir(model):
             has_D = True
-            D = p.D
+            D = model.D
 
-        if 'enc_weights_shared' in dir(p):
-            W = p.enc_weights_shared.get_value()
+        if 'enc_weights_shared' in dir(model):
+            W = model.enc_weights_shared.get_value()
 
 
         if W is None:
@@ -90,10 +96,10 @@ def get_weights_report(model_path = None, model = None, rescale = 'individual', 
 
     if (W is not None and len(W.shape) == 2) or weights_view is not None:
         if weights_view is None:
-            if hasattr(p,'get_weights_format'):
-                weights_format = p.get_weights_format()
-            if hasattr(p, 'weights_format'):
-                weights_format = p.weights_format
+            if hasattr(model,'get_weights_format'):
+                weights_format = model.get_weights_format()
+            if hasattr(model, 'weights_format'):
+                weights_format = model.weights_format
 
             assert hasattr(weights_format,'__iter__')
             assert len(weights_format) == 2
@@ -115,8 +121,8 @@ def get_weights_report(model_path = None, model = None, rescale = 'individual', 
         #print 'weights_view shape '+str(weights_view.shape)
         hr = int(np.ceil(np.sqrt(h)))
         hc = hr
-        if 'hidShape' in dir(p):
-            hr, hc = p.hidShape
+        if 'hidShape' in dir(model):
+            hr, hc = model.hidShape
 
         pv = patch_viewer.PatchViewer(grid_shape=(hr,hc), patch_shape=weights_view.shape[1:3],
                 is_color = weights_view.shape[-1] == 3)
@@ -139,8 +145,8 @@ def get_weights_report(model_path = None, model = None, rescale = 'individual', 
             patch = weights_view[idx[i],...]
             pv.add_patch( patch, rescale   = patch_rescale, activation = act)
     else:
-        e = p.weights
-        d = p.dec_weights_shared.value
+        e = model.weights
+        d = model.dec_weights_shared.value
 
         h = e.shape[0]
 

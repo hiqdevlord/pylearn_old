@@ -1,5 +1,6 @@
 """TODO: module-level docstring."""
 import time
+import numpy
 from theano import function, shared
 import theano.tensor as T
 import copy
@@ -65,6 +66,7 @@ class Monitor(object):
         Runs the model on the monitoring dataset in order to add one
         data point to each of the channels.
         """
+
         if self.dirty:
             self.redo_theano()
 
@@ -80,18 +82,12 @@ class Monitor(object):
                 d = yaml_parse.load(d)
                 self.dataset = d
 
-            s = d.get_stream_position()
-
-            d.restart_stream()
-
+            myiterator = d.iterator(mode='sequential',
+                                    batch_size=self.batch_size,
+                                    topo=self.topo)
             self.begin_record_entry()
 
-            for i in xrange(self.batches):
-                if self.topo:
-                    X = d.get_batch_topo(self.batch_size)
-                else:
-                    X = d.get_batch_design(self.batch_size)
-                #print 'monitoring batch ',i,':',(X.min(),X.mean(),X.max(),X.shape)
+            for X in myiterator:
                 self.run_prereqs(X)
                 self.accum(X)
 
@@ -117,13 +113,11 @@ class Monitor(object):
 
                 print "\t%s: %s" % (channel_name, val_str)
 
-            d.set_stream_position(s)
 
 
     def run_prereqs(self, X):
         for prereq in self.prereqs:
             prereq(X)
-
 
     def redo_theano(self):
         """
@@ -198,7 +192,11 @@ class Monitor(object):
         """
         temp = self.dataset
         if self.dataset and not isinstance(self.dataset, basestring):
-            self.dataset = self.dataset.yaml_src
+            try:
+                self.dataset = self.dataset.yaml_src
+            except AttributeError:
+                import warnings
+                warnings.warn('Trained model saved without indicating yaml_src')
         d = copy.copy(self.__dict__)
         self.dataset = temp
         for name in self.names_to_del:
@@ -227,7 +225,7 @@ class Monitor(object):
         if name in self.channels:
             raise ValueError("Tried to create the same channel twice (%s)" %
                              name)
-        self.channels[name] = Channel(ipt, val, name, prereqs)
+        self.channels[name] = MonitorChannel(ipt, val, name, prereqs)
         self.dirty = True
 
     @classmethod
@@ -254,7 +252,7 @@ class MonitorChannel(object):
     """
     A class representing a specific quantity to be monitored.
     """
-    def __init__(self, graph_input, val, name, prereqs = None):
+    def __init__(self, graph_input, val, name, prereqs=None):
         """
         Creates a channel for a quantity to be monitored.
 
