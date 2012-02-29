@@ -189,11 +189,7 @@ class Monitor(object):
         """
         temp = self.dataset
         if self.dataset and not isinstance(self.dataset, basestring):
-            try:
-                self.dataset = self.dataset.yaml_src
-            except AttributeError:
-                import warnings
-                warnings.warn('Trained model saved without indicating yaml_src')
+            self.dataset = self.dataset.yaml_src
         d = copy.copy(self.__dict__)
         self.dataset = temp
         for name in self.names_to_del:
