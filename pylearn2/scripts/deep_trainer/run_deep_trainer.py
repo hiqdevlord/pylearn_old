@@ -1,4 +1,3 @@
-#!/usr/bin/python
 """
 See readme.txt
 

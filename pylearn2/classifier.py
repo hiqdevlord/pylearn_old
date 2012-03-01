@@ -29,10 +29,9 @@ from theano import tensor
 # Local imports
 from pylearn2.base import Block
 from pylearn2.utils import sharedX
-from pylearn2.space import VectorSpace
-from pylearn2.models import Model
 
-class LogisticRegressionLayer(Block, Model):
+
+class LogisticRegressionLayer(Block):
     """Multi-class Logistic Regression Class
 
     The logistic regression is fully described by a weight matrix :math:`W`
@@ -60,7 +59,6 @@ class LogisticRegressionLayer(Block, Model):
         super(LogisticRegressionLayer, self).__init__()
 
         assert nvis >= 0, "Number of visible units must be non-negative"
-        self.input_space = VectorSpace(nvis)
         assert nclasses >= 0, "Number of classes must be non-negative"
 
         self.nvis = nvis
