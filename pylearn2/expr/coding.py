@@ -2,7 +2,7 @@
 
 import theano.tensor as T
 
-def triangle_code(X, centroids):
+def triangle(X, centroids):
     """ Compute the triangle activation function used
         in Adam Coates' AISTATS 2011 paper
 
@@ -24,4 +24,3 @@ def triangle_code(X, centroids):
 
     rval = T.clip( mu - Z, 0., 1e30)
 
-    return rval
