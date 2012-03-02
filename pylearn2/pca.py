@@ -25,6 +25,7 @@ from scipy.sparse.csr import csr_matrix
 import theano
 from theano import tensor
 from theano.sparse import SparseType, structured_dot
+from pylearn.algorithms import pca_online_estimator
 from scipy import linalg
 from scipy.sparse.csr import csr_matrix
 
@@ -48,12 +49,9 @@ from pylearn2.base import Block
 from pylearn2.utils import sharedX
 
 
-class _PCABase(Block):
+class PCA(Block):
     """
     Block which transforms its input via Principal Component Analysis.
-
-    This class is not intended to be instantiated directly. Use a
-    subclass to select a particular PCA implementation.
     """
 
     def __init__(self, num_components=None, min_variance=0.0, whiten=False):
@@ -71,7 +69,7 @@ class _PCABase(Block):
             standard deviation
         """
 
-        super(_PCABase, self).__init__()
+        super(PCA, self).__init__()
 
         self.num_components = num_components
         self.min_variance = min_variance
@@ -217,10 +215,10 @@ class _PCABase(Block):
             all eigenvalues in decreasing order
             matrix containing corresponding eigenvectors in its columns
         """
-        raise NotImplementedError('Not implemented in _PCABase. Use a subclass (and implement it there).')
+        raise NotImplementedError('_cov _eigen')
 
 
-class SparseMatPCA(_PCABase):
+class SparseMatPCA(PCA):
     """ Does PCA on sparse  matrices. Does not do online PCA.
         This is for the case where X - X.mean() does not fit
         in memory (because it's dense) but
@@ -294,9 +292,7 @@ class SparseMatPCA(_PCABase):
         return theano.function([inputs], self(inputs), name=name)
 
 
-class OnlinePCA(_PCABase):
-    """Online PCA implementation. Requires pylearn1."""
-
+class OnlinePCA(PCA):
     def __init__(self, minibatch_size=500, **kwargs):
         super(OnlinePCA, self).__init__(**kwargs)
         self.minibatch_size = minibatch_size
@@ -308,7 +304,6 @@ class OnlinePCA(_PCABase):
 
         num_components = min(self.num_components, X.shape[1])
 
-        from pylearn.algorithms import pca_online_estimator
         pca_estimator = pca_online_estimator.PcaOnlineEstimator(X.shape[1],
             n_eigen=num_components,
             minibatch_size=self.minibatch_size,
@@ -348,7 +343,7 @@ class Cov:
         return rval / float(m - 1)
 
 
-class CovEigPCA(_PCABase):
+class CovEigPCA(PCA):
     def __init__(self, cov_batch_size=None, **kwargs):
         super(CovEigPCA, self).__init__(**kwargs)
         if cov_batch_size is not None:
@@ -366,7 +361,7 @@ class CovEigPCA(_PCABase):
         return v[::-1], W[:, ::-1]
 
 
-class SVDPCA(_PCABase):
+class SVDPCA(PCA):
     def _cov_eigen(self, X):
         """
         Compute covariance matrix eigen{values,vectors} via Singular Value
@@ -380,7 +375,7 @@ class SVDPCA(_PCABase):
         return s ** 2, Vh.T
 
 
-class SparsePCA(_PCABase):
+class SparsePCA(PCA):
     def train(self, X, mean=None):
         print >> sys.stderr, ('WARNING: You should probably be using '
                               'SparseMatPCA, unless your design matrix fits '
@@ -527,7 +522,7 @@ if __name__ == "__main__":
 
     # Load precomputed PCA transformation if requested; otherwise compute it.
     if args.load_file:
-        pca = Block.load(args.load_file)
+        pca = PCA.load(args.load_file)
     else:
         print "... computing PCA"
         pca = PCAImpl(**conf)

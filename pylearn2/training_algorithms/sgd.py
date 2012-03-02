@@ -97,10 +97,8 @@ class SGD(TrainingAlgorithm):
                                  batches=self.monitoring_batches,
                                  batch_size=self.batch_size)
 
-
-        #Make the right kind of theano variable for the type of space
-        #the model acts on
         space = self.model.get_input_space()
+
         X = space.make_theano_batch(name='sgd_X')
 
         self.topo = len(X.type.broadcastable) > 2
