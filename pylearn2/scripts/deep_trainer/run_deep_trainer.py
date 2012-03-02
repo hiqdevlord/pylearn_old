@@ -1,3 +1,4 @@
+#!/usr/bin/python
 """
 See readme.txt
 
@@ -54,6 +55,7 @@ class ModelSaver(TrainingCallback):
     Save model after the last epoch.
     The saved models then may be visualized.
     """
+
     def __init__(self):
         self.current_epoch = 0
 
@@ -165,6 +167,7 @@ def get_grbm(structure):
         "mean_vis" : False,
         "sigma_lr_scale" : 1e-3
         }
+
     return GaussianBinaryRBM(**config)
 
 def get_logistic_regressor(structure):
