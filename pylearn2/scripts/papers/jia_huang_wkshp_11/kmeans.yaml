@@ -1,5 +1,3 @@
-#
-
 
 !obj:pylearn2.scripts.train.Train {
         dataset : !obj:pylearn2.datasets.dense_design_matrix.from_dataset {

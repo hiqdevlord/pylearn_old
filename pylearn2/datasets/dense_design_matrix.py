@@ -3,6 +3,7 @@ import functools
 
 import warnings
 import numpy as np
+
 from pylearn2.utils.iteration import (
     SequentialSubsetIterator,
     RandomSliceSubsetIterator,
@@ -11,6 +12,7 @@ from pylearn2.utils.iteration import (
     resolve_iterator_class
 )
 N = np
+
 import copy
 
 from pylearn2.datasets.dataset import Dataset
@@ -55,13 +57,13 @@ class DenseDesignMatrix(Dataset):
             A random number generator used for picking random
             indices into the design matrix when choosing minibatches.
         """
+        self.X = X
         if view_converter is not None:
             assert topo_view is None
-            self.X = X
             self.view_converter = view_converter
         else:
-            assert topo_view is not None
-            self.set_topological_view(topo_view)
+            if topo_view is not None:
+                self.set_topological_view(topo_view)
         self.y = y
         self.compress = False
         self.design_loc = None
@@ -191,6 +193,20 @@ class DenseDesignMatrix(Dataset):
         else:
             self.__dict__.update(d)
 
+    def split_dataset(self, split_size=0, nfolds=0, rng=None):
+        """
+          This function splits the dataset according to the number of
+          split_size defined by the user.
+
+          Parameters
+          -----------
+          split_size: The number of examples that will be assigned to
+          the training dataset.
+          nfolds: The number of folds for the  the validation set.
+          rng: Random number generation class to be used.
+        """
+        folds = self.iterator(mode="sequential", num_batches=nfolds)
+        print folds
     def get_stream_position(self):
         """
         If we view the dataset as providing a stream of random examples to
