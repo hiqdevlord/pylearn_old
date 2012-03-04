@@ -97,7 +97,7 @@ if __name__ == "__main__":
                 ).mean()
         if isinstance(layer,ContractiveAutoencoder):
             cost+=layer.contraction_penalty(thislayer_input[0]).mean()
-        opt = SGDOptimizer( layer.get_param_values(),
+        opt = SGDOptimizer( layer.params(),
                             stack_conf['base_lr'],
                             stack_conf['anneal_start']
                             )
